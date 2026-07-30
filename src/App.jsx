@@ -93,22 +93,25 @@ function canDelete(role, module) {
 }
 
 const TAB_META = {
-  dashboard: { label: "Resumen", icon: LayoutDashboard },
-  guests: { label: "Huéspedes y Alojamientos", icon: BedDouble },
-  restaurant: { label: "Restaurante", icon: UtensilsCrossed },
-  housekeeping: { label: "Limpieza", icon: Sparkles },
-  maintenance: { label: "Mantenimiento", icon: Wrench },
-  events: { label: "Eventos", icon: CalendarDays },
-  planning: { label: "Planning", icon: CalendarRange },
-  planningGeneral: { label: "Planning General", icon: Rows3 },
-  admin: { label: "Administrador", icon: ShieldAlert },
+  dashboard: { label: "Resumen", navLabel: "Resumen", icon: LayoutDashboard },
+  guests: { label: "Huéspedes y Alojamientos", navLabel: "Alojamientos", icon: BedDouble },
+  restaurant: { label: "Restaurante", navLabel: "Restaurante", icon: UtensilsCrossed },
+  housekeeping: { label: "Limpieza", navLabel: "Limpieza", icon: Sparkles },
+  maintenance: { label: "Mantenimiento", navLabel: "Mantenim.", icon: Wrench },
+  events: { label: "Eventos", navLabel: "Eventos", icon: CalendarDays },
+  planning: { label: "Planning", navLabel: "Planning", icon: CalendarRange },
+  planningGeneral: { label: "Planning General", navLabel: "Plan. General", icon: Rows3 },
+  admin: { label: "Administrador", navLabel: "Admin", icon: ShieldAlert },
 };
 
-// Describe en una frase corta qué tipo de cambio se hizo, comparando el array antes/después
+// Describe en una frase corta qué tipo de cambio se hizo, comparando el array antes/después.
+// "label" es un sustantivo en singular sin artículo, p. ej. "reserva de alojamiento".
 function summarizeChange(prevArr, nextArr, label) {
-  if (nextArr.length > prevArr.length) return `Creó ${label}`;
-  if (nextArr.length < prevArr.length) return `Eliminó ${label}`;
-  return `Editó ${label}`;
+  const diff = nextArr.length - prevArr.length;
+  if (diff > 1) return `Creó ${diff} ${label}s de una vez`;
+  if (diff === 1) return `Creó una ${label}`;
+  if (diff < 0) return `Eliminó una ${label}`;
+  return `Editó una ${label}`;
 }
 
 // Alojamientos "en blanco": solo su estado de limpieza, sin reservas precargadas
@@ -325,25 +328,25 @@ export default function MasBoronatOps() {
     logAction({ email: session.user.email, role, module: "Limpieza / Alojamientos", action: "Actualizó el estado de una unidad" });
   };
   const persistStays = async (next) => {
-    const action = summarizeChange(stays, next, "una reserva de alojamiento");
+    const action = summarizeChange(stays, next, "reserva de alojamiento");
     setStays(next);
     await saveShared(KEYS.stays, next);
     logAction({ email: session.user.email, role, module: "Hospedaje", action });
   };
   const persistBookings = async (next) => {
-    const action = summarizeChange(bookings, next, "una reserva de restaurante");
+    const action = summarizeChange(bookings, next, "reserva de restaurante");
     setBookings(next);
     await saveShared(KEYS.bookings, next);
     logAction({ email: session.user.email, role, module: "Restaurante", action });
   };
   const persistTickets = async (next) => {
-    const action = summarizeChange(tickets, next, "un ticket de mantenimiento");
+    const action = summarizeChange(tickets, next, "ticket de mantenimiento");
     setTickets(next);
     await saveShared(KEYS.tickets, next);
     logAction({ email: session.user.email, role, module: "Mantenimiento", action });
   };
   const persistEvents = async (next) => {
-    const action = summarizeChange(events, next, "un evento");
+    const action = summarizeChange(events, next, "evento");
     setEvents(next);
     await saveShared(KEYS.events, next);
     logAction({ email: session.user.email, role, module: "Eventos", action });
@@ -449,7 +452,7 @@ export default function MasBoronatOps() {
 
 function TopBar({ roleLabel, email, lastSync, syncing, onRefresh }) {
   return (
-    <header className="bg-emerald-950 text-white sticky top-0 z-30 shadow-sm">
+    <header className="bg-[#332b1f] text-white sticky top-0 z-30 shadow-sm">
       <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center shrink-0 border border-[#ab9574]/40 p-1">
@@ -457,29 +460,29 @@ function TopBar({ roleLabel, email, lastSync, syncing, onRefresh }) {
           </div>
           <div className="min-w-0">
             <h1 className="font-semibold leading-tight text-sm sm:text-base truncate tracking-wide">Mas Boronat</h1>
-            <p className="text-emerald-300 text-[11px] leading-tight hidden sm:block">Masía s. XVII · Salomó, Tarragona — Gestión operativa</p>
+            <p className="text-[#c4baab] text-[11px] leading-tight hidden sm:block">Masía s. XVII · Salomó, Tarragona — Gestión operativa</p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={onRefresh} className="p-2 rounded-full hover:bg-emerald-900 text-emerald-200" title="Actualizar ahora">
+          <button onClick={onRefresh} className="p-2 rounded-full hover:bg-[#463b2a] text-[#c4baab]" title="Actualizar ahora">
             <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
           </button>
           <div className="text-right hidden sm:block">
             <div className="text-xs font-medium">{roleLabel}</div>
-            <div className="text-[10px] text-emerald-300 truncate max-w-[160px]">{email}</div>
+            <div className="text-[10px] text-[#c4baab] truncate max-w-[160px]">{email}</div>
           </div>
           <button
             onClick={() => supabase.auth.signOut()}
-            className="bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-medium rounded-lg px-3 py-2"
+            className="bg-[#463b2a] hover:bg-[#584a35] text-white text-xs font-medium rounded-lg px-3 py-2"
           >
             Cerrar sesión
           </button>
         </div>
       </div>
-      <div className="max-w-6xl mx-auto px-3 sm:px-6 pb-1.5 -mt-1 text-[10px] text-emerald-300 flex items-center gap-1.5 sm:hidden">
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 pb-1.5 -mt-1 text-[10px] text-[#c4baab] flex items-center gap-1.5 sm:hidden">
         <span>{roleLabel} · {email}</span>
       </div>
-      <div className="max-w-6xl mx-auto px-3 sm:px-6 pb-1.5 -mt-1 text-[10px] text-emerald-300 flex items-center gap-1.5">
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 pb-1.5 -mt-1 text-[10px] text-[#c4baab] flex items-center gap-1.5">
         <span className="relative flex w-1.5 h-1.5">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ab9574] opacity-75" />
           <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#ab9574]" />
@@ -493,7 +496,7 @@ function TopBar({ roleLabel, email, lastSync, syncing, onRefresh }) {
 function TabNav({ tabs, tab, setTab }) {
   return (
     <nav className="bg-white border-b border-stone-200 sticky top-[57px] sm:top-[61px] z-20 overflow-x-auto">
-      <div className="max-w-6xl mx-auto px-2 sm:px-6 flex gap-1">
+      <div className="max-w-6xl mx-auto px-2 sm:px-4 flex gap-0.5">
         {tabs.map((t) => {
           const meta = TAB_META[t];
           const Icon = meta.icon;
@@ -502,12 +505,12 @@ function TabNav({ tabs, tab, setTab }) {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex items-center gap-1.5 px-3 sm:px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-2.5 text-[11px] sm:text-xs font-medium border-b-2 whitespace-nowrap transition-colors shrink-0 ${
                 active ? "border-[#ab9574] text-[#6d5c42]" : "border-transparent text-stone-500 hover:text-stone-700"
               }`}
             >
-              <Icon size={16} />
-              {meta.label}
+              <Icon size={14} />
+              {meta.navLabel}
             </button>
           );
         })}
@@ -601,6 +604,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
   const [typeFilter, setTypeFilter] = useState("Todos");
   const [newStayFor, setNewStayFor] = useState(null); // roomId
   const [editingStay, setEditingStay] = useState(null); // stay object
+  const [showGroupModal, setShowGroupModal] = useState(false);
 
   const filtered = rooms.filter((r) => {
     const matchesType = typeFilter === "Todos" || r.type === typeFilter;
@@ -610,6 +614,10 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     if (unitLabel(r).toLowerCase().includes(q)) return true;
     return stays.some((s) => s.roomId === r.id && (s.guestName || "").toLowerCase().includes(q));
   });
+
+  const groups = CATEGORIAS.map((c) => ({ ...c, rooms: filtered.filter((r) => r.type === c.type) })).filter(
+    (g) => g.rooms.length > 0
+  );
 
   const upsert = async (stay) => {
     let next;
@@ -621,16 +629,21 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
   };
   const remove = async (id) => { await persistStays(stays.filter((s) => s.id !== id)); };
 
+  const saveGroup = async (newStays) => {
+    await persistStays([...stays, ...newStays]);
+    setShowGroupModal(false);
+  };
+
   const stayModalRoom = newStayFor ? rooms.find((r) => r.id === newStayFor) : editingStay ? rooms.find((r) => r.id === editingStay.roomId) : null;
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
+      <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">Huéspedes y Alojamientos</h2>
           <p className="text-xs text-stone-400">Cada unidad puede tener varias reservas: pasadas, en curso y futuras</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls + " w-auto"}>
             {["Todos", ...TIPOS_ALOJAMIENTO].map((t) => <option key={t}>{t}</option>)}
           </select>
@@ -643,60 +656,76 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
               className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#ab9574] w-40 sm:w-56"
             />
           </div>
+          {editable && !hotelClosed && (
+            <button
+              onClick={() => setShowGroupModal(true)}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border border-[#ab9574] text-[#6d5c42] hover:bg-[#ab9574]/10"
+            >
+              <Users size={14} /> Reserva de grupo (varias unidades)
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {filtered.map((r) => {
-          const roomStays = stays
-            .filter((s) => s.roomId === r.id)
-            .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
-          const current = roomStays.find((s) => s.status !== "Cancelada" && stayTiming(s) === "En curso");
+      {groups.map((g) => (
+        <div key={g.type} className="mb-5">
+          <div className="flex items-center gap-2 mb-2 sticky top-[105px] sm:top-[113px] z-10">
+            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: g.color }} />
+            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: g.color }}>{g.type}</h3>
+            <span className="text-[11px] text-stone-400">({g.rooms.length})</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+            {g.rooms.map((r) => {
+              const roomStays = stays
+                .filter((s) => s.roomId === r.id)
+                .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+              const current = roomStays.find((s) => s.status !== "Cancelada" && stayTiming(s) === "En curso");
 
-          return (
-            <div key={r.id} className="bg-white rounded-2xl border border-stone-200 p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <span className="font-semibold text-stone-800">{unitLabel(r)}</span>
-                  <span className="block text-[11px] text-stone-400">Capacidad: {r.capacity} pers.</span>
+              return (
+                <div key={r.id} className="bg-white rounded-xl border border-stone-200 p-2.5">
+                  <div className="flex items-center justify-between mb-1.5 gap-1">
+                    <span className="font-semibold text-stone-800 text-sm truncate">{unitLabel(r)}</span>
+                    <Badge tone={current ? "green" : "slate"}>{current ? "Ocupada" : "Libre"}</Badge>
+                  </div>
+                  <p className="text-[10px] text-stone-400 mb-1.5">Cap. {r.capacity} pers.</p>
+
+                  {roomStays.length === 0 ? (
+                    <p className="text-xs text-stone-400 italic mb-1.5">Sin reservas.</p>
+                  ) : (
+                    <ul className="space-y-1 mb-1.5 max-h-28 overflow-y-auto pr-0.5">
+                      {roomStays.map((s) => (
+                        <li key={s.id} className="text-[11px] border border-stone-100 rounded-lg px-2 py-1">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-medium text-stone-700 truncate">{s.guestName || "Sin nombre"}</span>
+                            <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? "Canc." : stayTiming(s)}</Badge>
+                          </div>
+                          <div className="text-stone-400 mt-0.5 truncate">{s.checkIn} → {s.checkOut}</div>
+                          {(editable || deletable) && (
+                            <div className="flex gap-2 mt-0.5">
+                              {editable && <button onClick={() => setEditingStay(s)} className="text-[#6d5c42] font-medium">Editar</button>}
+                              {deletable && <button onClick={() => remove(s.id)} className="text-rose-600 font-medium">Eliminar</button>}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {editable && !hotelClosed && (
+                    <button onClick={() => setNewStayFor(r.id)} className="w-full flex items-center justify-center gap-1 text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-1.5">
+                      <Plus size={11} /> Nueva reserva
+                    </button>
+                  )}
+                  {editable && hotelClosed && (
+                    <p className="text-[10px] text-stone-400 text-center italic">Hotel cerrado</p>
+                  )}
                 </div>
-                <Badge tone={current ? "green" : "slate"}>{current ? "Ocupada hoy" : "Libre hoy"}</Badge>
-              </div>
-
-              {roomStays.length === 0 ? (
-                <p className="text-sm text-stone-400 italic mb-2">Sin reservas registradas.</p>
-              ) : (
-                <ul className="space-y-1.5 mb-2">
-                  {roomStays.map((s) => (
-                    <li key={s.id} className="text-xs border border-stone-100 rounded-lg px-2.5 py-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-stone-700">{s.guestName || "Sin nombre"}</span>
-                        <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? "Cancelada" : stayTiming(s)}</Badge>
-                      </div>
-                      <div className="text-stone-400 mt-0.5">{s.checkIn} → {s.checkOut} · {s.numGuests} pers. · {s.mealPlan}</div>
-                      {(editable || deletable) && (
-                        <div className="flex gap-3 mt-1">
-                          {editable && <button onClick={() => setEditingStay(s)} className="text-[#6d5c42] font-medium">Editar</button>}
-                          {deletable && <button onClick={() => remove(s.id)} className="text-rose-600 font-medium">Eliminar</button>}
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {editable && !hotelClosed && (
-                <button onClick={() => setNewStayFor(r.id)} className="w-full flex items-center justify-center gap-1.5 text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-2">
-                  <Plus size={13} /> Nueva reserva para {unitLabel(r)}
-                </button>
-              )}
-              {editable && hotelClosed && (
-                <p className="text-[11px] text-stone-400 text-center italic">Hotel cerrado — no se pueden crear reservas ahora</p>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      {groups.length === 0 && <p className="text-sm text-stone-400 italic">No hay alojamientos que coincidan con la búsqueda.</p>}
 
       {(newStayFor || editingStay) && stayModalRoom && (
         <StayModal
@@ -707,7 +736,132 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
           onSave={upsert}
         />
       )}
+
+      {showGroupModal && (
+        <GroupBookingModal rooms={rooms} onClose={() => setShowGroupModal(false)} onSave={saveGroup} />
+      )}
     </div>
+  );
+}
+
+function GroupBookingModal({ rooms, onClose, onSave }) {
+  const [guestName, setGuestName] = useState("");
+  const [checkIn, setCheckIn] = useState(todayStr());
+  const [checkOut, setCheckOut] = useState(todayStr());
+  const [mealPlan, setMealPlan] = useState("Ninguno");
+  const [guestsPerUnit, setGuestsPerUnit] = useState(2);
+  const [selected, setSelected] = useState({}); // { roomId: true }
+
+  const groups = CATEGORIAS.map((c) => ({ ...c, rooms: rooms.filter((r) => r.type === c.type) }));
+  const selectedIds = Object.keys(selected).filter((id) => selected[id]);
+  const allSelected = selectedIds.length === rooms.length && rooms.length > 0;
+
+  const toggleRoom = (id) => setSelected((s) => ({ ...s, [id]: !s[id] }));
+  const toggleCategory = (cat) => {
+    const ids = groups.find((g) => g.type === cat).rooms.map((r) => r.id);
+    const allOn = ids.every((id) => selected[id]);
+    setSelected((s) => {
+      const next = { ...s };
+      ids.forEach((id) => { next[id] = !allOn; });
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    if (allSelected) setSelected({});
+    else setSelected(Object.fromEntries(rooms.map((r) => [r.id, true])));
+  };
+
+  const totalCapacity = rooms.filter((r) => selected[r.id]).reduce((sum, r) => sum + r.capacity, 0);
+
+  const submit = () => {
+    if (!guestName.trim() || selectedIds.length === 0) return;
+    const newStays = selectedIds.map((roomId) => {
+      const room = rooms.find((r) => r.id === roomId);
+      return {
+        id: uid(),
+        roomId,
+        roomLabel: unitLabel(room),
+        guestName: guestName.trim(),
+        checkIn,
+        checkOut,
+        numGuests: Math.min(guestsPerUnit, room.capacity),
+        mealPlan,
+        status: "Confirmada",
+      };
+    });
+    onSave(newStays);
+  };
+
+  return (
+    <Modal title="Reserva de grupo — varias unidades a la vez" onClose={onClose}>
+      <p className="text-xs text-stone-500 mb-3">
+        Ideal para bodas, retiros o grupos grandes: crea una reserva para todas las unidades que necesites en un solo paso, con el mismo huésped/grupo y las mismas fechas.
+      </p>
+
+      <Field label="Nombre del grupo / huésped principal">
+        <input className={inputCls} maxLength={120} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="p. ej. Boda García-Ruiz, Retiro Acme" />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Fecha de entrada">
+          <input type="date" className={inputCls} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
+        </Field>
+        <Field label="Fecha de salida">
+          <input type="date" className={inputCls} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Huéspedes por unidad (aprox.)">
+          <input type="number" min="1" className={inputCls} value={guestsPerUnit} onChange={(e) => setGuestsPerUnit(Number(e.target.value))} />
+        </Field>
+        <Field label="Régimen">
+          <select className={inputCls} value={mealPlan} onChange={(e) => setMealPlan(e.target.value)}>
+            {MEAL_PLANS.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <div className="flex items-center justify-between mb-2 mt-1">
+        <span className="text-xs font-medium text-stone-500">Unidades a incluir</span>
+        <button onClick={toggleAll} className="text-xs font-medium text-[#6d5c42]">
+          {allSelected ? "Quitar todas" : "Seleccionar todo el complejo"}
+        </button>
+      </div>
+
+      <div className="border border-stone-200 rounded-xl max-h-56 overflow-y-auto p-2 space-y-2 mb-2">
+        {groups.map((g) => {
+          const ids = g.rooms.map((r) => r.id);
+          const allOn = ids.length > 0 && ids.every((id) => selected[id]);
+          return (
+            <div key={g.type}>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer">
+                <input type="checkbox" checked={allOn} onChange={() => toggleCategory(g.type)} />
+                <span className="text-xs font-semibold" style={{ color: g.color }}>{g.type}</span>
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1 pl-5">
+                {g.rooms.map((r) => (
+                  <label key={r.id} className="flex items-center gap-1 text-[11px] text-stone-600 cursor-pointer">
+                    <input type="checkbox" checked={!!selected[r.id]} onChange={() => toggleRoom(r.id)} />
+                    {r.number || r.type}
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-stone-500 mb-4">
+        {selectedIds.length} unidad{selectedIds.length !== 1 ? "es" : ""} seleccionada{selectedIds.length !== 1 ? "s" : ""} · capacidad total {totalCapacity} pers.
+      </p>
+
+      <button
+        onClick={submit}
+        disabled={!guestName.trim() || selectedIds.length === 0}
+        className={`w-full py-2.5 ${primaryBtn} disabled:opacity-50`}
+      >
+        Crear {selectedIds.length || ""} reserva{selectedIds.length !== 1 ? "s" : ""}
+      </button>
+    </Modal>
   );
 }
 
