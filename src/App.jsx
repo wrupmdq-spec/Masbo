@@ -1112,6 +1112,8 @@ function BookingModal({ stays, date, booking, onClose, onSave }) {
 
 function HousekeepingModule({ rooms, persistRooms, editable }) {
   const [noteEditing, setNoteEditing] = useState(null);
+  const [typeFilter, setTypeFilter] = useState("Todos");
+  const [onlyPending, setOnlyPending] = useState(false);
 
   const cycleStatus = async (id) => {
     const current = rooms.find((r) => r.id === id);
@@ -1123,46 +1125,84 @@ function HousekeepingModule({ rooms, persistRooms, editable }) {
     setNoteEditing(null);
   };
   const icon = (status) => {
-    if (status === "Limpia") return <CheckCircle2 size={16} />;
-    if (status === "Sucia") return <AlertTriangle size={16} />;
-    if (status === "En Progreso") return <RefreshCw size={16} />;
-    return <Circle size={16} />;
+    if (status === "Limpia") return <CheckCircle2 size={13} />;
+    if (status === "Sucia") return <AlertTriangle size={13} />;
+    if (status === "En Progreso") return <RefreshCw size={13} />;
+    return <Circle size={13} />;
   };
+
+  const filtered = rooms.filter((r) => {
+    if (typeFilter !== "Todos" && r.type !== typeFilter) return false;
+    if (onlyPending && r.cleaningStatus === "Limpia") return false;
+    return true;
+  });
+
+  const groups = CATEGORIAS.map((c) => ({ ...c, rooms: filtered.filter((r) => r.type === c.type) })).filter(
+    (g) => g.rooms.length > 0
+  );
+  const pendingCount = rooms.filter((r) => r.cleaningStatus !== "Limpia").length;
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-stone-800 mb-4">Limpieza — Estado de Alojamientos</h2>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {rooms.map((r) => (
-          <div key={r.id} className="bg-white rounded-2xl border border-stone-200 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-stone-800">{unitLabel(r)}</span>
-              <Badge tone={cleanTone(r.cleaningStatus)}>
-                <span className="flex items-center gap-1">{icon(r.cleaningStatus)} {r.cleaningStatus}</span>
-              </Badge>
-            </div>
-            {editable ? (
-              <button onClick={() => cycleStatus(r.id)} className="w-full text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-2 mb-2">
-                Toca para actualizar estado →
-              </button>
-            ) : null}
-            {r.cleaningNotes && (
-              <div className="text-xs text-stone-500 bg-stone-50 rounded-md px-2 py-1 mb-2 flex items-start gap-1">
-                <StickyNote size={11} className="mt-0.5 shrink-0" /> {r.cleaningNotes}
-              </div>
-            )}
-            {editable && (
-              noteEditing === r.id ? (
-                <NoteInline initial={r.cleaningNotes} onSave={(v) => saveNote(r.id, v)} onCancel={() => setNoteEditing(null)} />
-              ) : (
-                <button onClick={() => setNoteEditing(r.id)} className="text-xs text-[#6d5c42] font-medium">
-                  {r.cleaningNotes ? "Editar nota" : "+ Añadir nota"}
-                </button>
-              )
-            )}
-          </div>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div>
+          <h2 className="text-lg font-semibold text-stone-800">Limpieza — Estado de Alojamientos</h2>
+          <p className="text-xs text-stone-400">{pendingCount === 0 ? "Todo limpio ahora mismo" : `${pendingCount} unidad${pendingCount !== 1 ? "es" : ""} por revisar`}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls + " w-auto"}>
+            {["Todos", ...TIPOS_ALOJAMIENTO].map((t) => <option key={t}>{t}</option>)}
+          </select>
+          <button
+            onClick={() => setOnlyPending((v) => !v)}
+            className={`text-xs font-medium px-3 py-2 rounded-lg border ${onlyPending ? selectedToggle : unselectedToggle}`}
+          >
+            Solo pendientes
+          </button>
+        </div>
       </div>
+
+      {groups.map((g) => (
+        <div key={g.type} className="mb-5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: g.color }} />
+            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: g.color }}>{g.type}</h3>
+            <span className="text-[11px] text-stone-400">({g.rooms.length})</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+            {g.rooms.map((r) => (
+              <div key={r.id} className="bg-white rounded-xl border border-stone-200 p-2.5">
+                <div className="flex items-center justify-between mb-1.5 gap-1">
+                  <span className="font-semibold text-stone-800 text-sm truncate">{unitLabel(r)}</span>
+                  <Badge tone={cleanTone(r.cleaningStatus)}>
+                    <span className="flex items-center gap-1">{icon(r.cleaningStatus)} {r.cleaningStatus}</span>
+                  </Badge>
+                </div>
+                {editable ? (
+                  <button onClick={() => cycleStatus(r.id)} className="w-full text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-1.5 mb-1.5">
+                    Toca para actualizar →
+                  </button>
+                ) : null}
+                {r.cleaningNotes && (
+                  <div className="text-[11px] text-stone-500 bg-stone-50 rounded-md px-2 py-1 mb-1.5 flex items-start gap-1">
+                    <StickyNote size={10} className="mt-0.5 shrink-0" /> {r.cleaningNotes}
+                  </div>
+                )}
+                {editable && (
+                  noteEditing === r.id ? (
+                    <NoteInline initial={r.cleaningNotes} onSave={(v) => saveNote(r.id, v)} onCancel={() => setNoteEditing(null)} />
+                  ) : (
+                    <button onClick={() => setNoteEditing(r.id)} className="text-[11px] text-[#6d5c42] font-medium">
+                      {r.cleaningNotes ? "Editar nota" : "+ Añadir nota"}
+                    </button>
+                  )
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {groups.length === 0 && <p className="text-sm text-stone-400 italic">No hay unidades que coincidan con el filtro.</p>}
     </div>
   );
 }
