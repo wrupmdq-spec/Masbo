@@ -3,7 +3,7 @@ import {
   LayoutDashboard, BedDouble, UtensilsCrossed, Sparkles, Wrench,
   Plus, X, RefreshCw, Users, Phone, StickyNote, Clock, ChevronDown,
   CheckCircle2, AlertTriangle, Circle, Search, CalendarDays, MapPin,
-  CalendarRange, ChevronLeft, ChevronRight, ShieldAlert
+  CalendarRange, ChevronLeft, ChevronRight, ShieldAlert, Rows3, ChevronsLeft, ChevronsRight
 } from "lucide-react";
 import { loadShared, saveShared, supabase, getProfile, logAction, fetchAuditLog } from "./supabaseClient";
 import Login from "./Login";
@@ -14,14 +14,16 @@ import Login from "./Login";
 
 // Tipos de alquiler reales de Mas Boronat, con capacidad máxima de huéspedes por unidad
 const CATEGORIAS = [
-  { type: "Cataluña", numbers: Array.from({ length: 10 }, (_, i) => i + 1), capacity: 4 },
-  { type: "Flandes", numbers: Array.from({ length: 8 }, (_, i) => i + 1), capacity: 4 },
-  { type: "Hotel", numbers: Array.from({ length: 11 }, (_, i) => i + 1), capacity: 2 },
-  { type: "Mercator", numbers: [null], capacity: 12 },
-  { type: "Amberes", numbers: [2, 3, 4], capacity: 4 },
-  { type: "Masía Suites", numbers: Array.from({ length: 9 }, (_, i) => i + 1), capacity: 2 },
-  { type: "Masía Aparts", numbers: [1, 2], capacity: 4 },
+  { type: "Cataluña", numbers: Array.from({ length: 10 }, (_, i) => i + 1), capacity: 4, color: "#d97706" },
+  { type: "Flandes", numbers: Array.from({ length: 8 }, (_, i) => i + 1), capacity: 4, color: "#0891b2" },
+  { type: "Hotel", numbers: Array.from({ length: 11 }, (_, i) => i + 1), capacity: 2, color: "#16a34a" },
+  { type: "Mercator", numbers: [null], capacity: 12, color: "#7c3aed" },
+  { type: "Amberes", numbers: [2, 3, 4], capacity: 4, color: "#be123c" },
+  { type: "Masía Suites", numbers: Array.from({ length: 9 }, (_, i) => i + 1), capacity: 2, color: "#4338ca" },
+  { type: "Masía Aparts", numbers: [1, 2], capacity: 4, color: "#78716c" },
 ];
+
+const CATEGORY_COLOR = Object.fromEntries(CATEGORIAS.map((c) => [c.type, c.color]));
 
 const UNIDADES = CATEGORIAS.flatMap((c) =>
   c.numbers.map((n) => ({ id: n ? `${c.type}-${n}` : c.type, type: c.type, number: n, capacity: c.capacity }))
@@ -57,12 +59,12 @@ const PLANNING_MAX = "2030-12";
 const ROLES = {
   admin: {
     label: "Administrador",
-    tabs: ["dashboard", "guests", "restaurant", "housekeeping", "maintenance", "events", "planning", "admin"],
+    tabs: ["dashboard", "guests", "restaurant", "housekeeping", "maintenance", "events", "planning", "planningGeneral", "admin"],
     edit: ["guests", "restaurant", "housekeeping", "maintenance", "events"],
   },
   reception: {
     label: "Recepción",
-    tabs: ["dashboard", "guests", "restaurant", "housekeeping", "maintenance", "events", "planning"],
+    tabs: ["dashboard", "guests", "restaurant", "housekeeping", "maintenance", "events", "planning", "planningGeneral"],
     edit: ["guests", "restaurant", "housekeeping", "maintenance", "events"],
   },
   restaurant: {
@@ -98,6 +100,7 @@ const TAB_META = {
   maintenance: { label: "Mantenimiento", icon: Wrench },
   events: { label: "Eventos", icon: CalendarDays },
   planning: { label: "Planning", icon: CalendarRange },
+  planningGeneral: { label: "Planning General", icon: Rows3 },
   admin: { label: "Administrador", icon: ShieldAlert },
 };
 
@@ -431,6 +434,7 @@ export default function MasBoronatOps() {
         {tab === "maintenance" && <MaintenanceModule tickets={tickets} persistTickets={persistTickets} editable={canEdit("maintenance")} deletable={canDelete(role, "maintenance")} />}
         {tab === "events" && <EventsModule events={events} persistEvents={persistEvents} editable={canEdit("events")} deletable={canDelete(role, "events")} />}
         {tab === "planning" && <PlanningModule stays={stays} bookings={bookings} events={events} />}
+        {tab === "planningGeneral" && <PlanningGeneralModule rooms={rooms} stays={stays} />}
         {tab === "admin" && role === "admin" && (
           <AdminModule stays={stays} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus} email={session.user.email} />
         )}
@@ -1474,6 +1478,237 @@ function PlanningModule({ stays, bookings, events }) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Planning General de Alojamiento — vista tipo Gantt por habitación        */
+/* ---------------------------------------------------------------------- */
+
+const GANTT_DAY_WIDTH = 42; // px por día
+const GANTT_ROOM_COL = 168; // px de la columna de habitación
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function daysBetween(a, b) {
+  const da = new Date(a + "T00:00:00");
+  const db = new Date(b + "T00:00:00");
+  return Math.round((db - da) / 86400000);
+}
+function stayBarTone(s) {
+  if (s.status === "Cancelada") return null;
+  const timing = stayTiming(s);
+  if (timing === "En curso") return { bg: "#16a34a", text: "#fff" }; // verde: huésped en casa ahora
+  if (timing === "Próxima") return { bg: "#0369a1", text: "#fff" }; // azul: reserva futura
+  return { bg: "#a8a29e", text: "#fff" }; // gris: estancia ya finalizada
+}
+
+function PlanningGeneralModule({ rooms, stays }) {
+  const [windowStart, setWindowStart] = useState(todayStr());
+  const [daysToShow, setDaysToShow] = useState(21);
+  const [typeFilter, setTypeFilter] = useState("Todos");
+  const [query, setQuery] = useState("");
+  const [activeStay, setActiveStay] = useState(null);
+
+  const days = Array.from({ length: daysToShow }, (_, i) => addDays(windowStart, i));
+  const windowEnd = days[days.length - 1];
+  const today = todayStr();
+
+  const q = query.trim().toLowerCase();
+  const roomMatches = (r) => {
+    if (typeFilter !== "Todos" && r.type !== typeFilter) return false;
+    if (!q) return true;
+    return stays.some((s) => s.roomId === r.id && (s.guestName || "").toLowerCase().includes(q));
+  };
+  const visibleRooms = rooms.filter(roomMatches);
+
+  const groups = CATEGORIAS.map((c) => ({
+    ...c,
+    rooms: visibleRooms.filter((r) => r.type === c.type),
+  })).filter((g) => g.rooms.length > 0);
+
+  const staysForRoom = (roomId) =>
+    stays.filter(
+      (s) => s.roomId === roomId && s.status !== "Cancelada" && rangesOverlap(s.checkIn, s.checkOut, windowStart, windowEnd)
+    );
+
+  // Meses que aparecen en la ventana visible, con cuántos días de cada uno se ven (para la fila de cabecera)
+  const monthSpans = [];
+  days.forEach((d) => {
+    const label = new Date(d + "T00:00:00").toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+    const last = monthSpans[monthSpans.length - 1];
+    if (last && last.label === label) last.count += 1;
+    else monthSpans.push({ label, count: 1 });
+  });
+
+  const totalWidth = GANTT_DAY_WIDTH * daysToShow;
+  const gridBg = {
+    backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${GANTT_DAY_WIDTH - 1}px, #e7e5e4 ${GANTT_DAY_WIDTH - 1}px, #e7e5e4 ${GANTT_DAY_WIDTH}px)`,
+  };
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold text-stone-800">Planning General de Alojamiento</h2>
+        <p className="text-xs text-stone-400">Vista de conjunto por habitación — igual de un vistazo que el planning de siempre</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar huésped"
+            className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#ab9574] w-40 sm:w-56"
+          />
+        </div>
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls + " w-auto"}>
+          {["Todos", ...TIPOS_ALOJAMIENTO].map((t) => <option key={t}>{t}</option>)}
+        </select>
+        <select value={daysToShow} onChange={(e) => setDaysToShow(Number(e.target.value))} className={inputCls + " w-auto"}>
+          <option value={14}>14 días</option>
+          <option value={21}>21 días</option>
+          <option value={30}>30 días</option>
+        </select>
+        <div className="flex items-center gap-1 ml-auto">
+          <button onClick={() => setWindowStart(addDays(windowStart, -daysToShow))} className="p-2 rounded-lg border border-stone-300 text-stone-600" title="Página anterior">
+            <ChevronsLeft size={15} />
+          </button>
+          <button onClick={() => setWindowStart(addDays(windowStart, -7))} className="p-2 rounded-lg border border-stone-300 text-stone-600" title="7 días atrás">
+            <ChevronLeft size={15} />
+          </button>
+          <input type="date" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} className={inputCls + " w-auto"} />
+          <button onClick={() => setWindowStart(today)} className="px-2 py-2 rounded-lg border border-stone-300 text-stone-600 text-xs font-medium">Hoy</button>
+          <button onClick={() => setWindowStart(addDays(windowStart, 7))} className="p-2 rounded-lg border border-stone-300 text-stone-600" title="7 días adelante">
+            <ChevronRight size={15} />
+          </button>
+          <button onClick={() => setWindowStart(addDays(windowStart, daysToShow))} className="p-2 rounded-lg border border-stone-300 text-stone-600" title="Página siguiente">
+            <ChevronsRight size={15} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4 mb-2 text-[11px] text-stone-500 flex-wrap">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#16a34a] inline-block" /> Huésped alojado ahora</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#0369a1] inline-block" /> Reserva futura</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#a8a29e] inline-block" /> Estancia finalizada</span>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <div style={{ width: GANTT_ROOM_COL + totalWidth }}>
+            {/* Cabecera: meses y días */}
+            <div className="flex sticky top-0 z-20 bg-white border-b border-stone-200">
+              <div style={{ width: GANTT_ROOM_COL }} className="shrink-0 sticky left-0 z-30 bg-white border-r border-stone-200" />
+              <div>
+                <div className="flex border-b border-stone-100">
+                  {monthSpans.map((m, i) => (
+                    <div
+                      key={i}
+                      style={{ width: m.count * GANTT_DAY_WIDTH }}
+                      className="text-center text-[11px] font-semibold text-stone-600 py-1 capitalize border-r border-stone-100"
+                    >
+                      {m.label}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex">
+                  {days.map((d) => {
+                    const dow = new Date(d + "T00:00:00").getDay();
+                    const isWeekend = dow === 0 || dow === 6;
+                    const isToday = d === today;
+                    return (
+                      <div
+                        key={d}
+                        style={{ width: GANTT_DAY_WIDTH }}
+                        className={`text-center text-[10px] py-1 border-r border-stone-100 ${isToday ? "bg-[#ab9574]/20 font-bold text-[#6d5c42]" : isWeekend ? "bg-stone-50 text-stone-400" : "text-stone-500"}`}
+                      >
+                        {Number(d.slice(-2))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Cuerpo: grupos por edificio y filas por habitación */}
+            {groups.map((g) => (
+              <div key={g.type}>
+                <div className="flex">
+                  <div
+                    style={{ width: GANTT_ROOM_COL, backgroundColor: g.color }}
+                    className="shrink-0 sticky left-0 z-10 text-white text-xs font-semibold px-3 py-1.5"
+                  >
+                    {g.type}
+                  </div>
+                  <div style={{ width: totalWidth }} className="bg-stone-50" />
+                </div>
+                {g.rooms.map((r) => {
+                  const roomStays = staysForRoom(r.id);
+                  return (
+                    <div key={r.id} className="flex border-b border-stone-100">
+                      <div
+                        style={{ width: GANTT_ROOM_COL, borderLeft: `4px solid ${g.color}` }}
+                        className="shrink-0 sticky left-0 z-10 bg-white px-2.5 py-2 flex items-center gap-2"
+                      >
+                        <span className="text-xs font-medium text-stone-700 truncate">{unitLabel(r)}</span>
+                      </div>
+                      <div className="relative" style={{ width: totalWidth, height: 40, ...gridBg }}>
+                        {roomStays.map((s) => {
+                          const tone = stayBarTone(s);
+                          if (!tone) return null;
+                          const startOffset = Math.max(0, daysBetween(windowStart, s.checkIn));
+                          const clippedEnd = Math.min(daysBetween(windowStart, s.checkOut), daysToShow - 1);
+                          const widthDays = Math.max(1, clippedEnd - startOffset + 1);
+                          return (
+                            <button
+                              key={s.id}
+                              onClick={() => setActiveStay(s)}
+                              title={`${s.guestName || "Sin nombre"} · ${s.checkIn} → ${s.checkOut}`}
+                              style={{
+                                left: startOffset * GANTT_DAY_WIDTH + 2,
+                                width: widthDays * GANTT_DAY_WIDTH - 4,
+                                top: 4,
+                                height: 32,
+                                backgroundColor: tone.bg,
+                                color: tone.text,
+                              }}
+                              className="absolute rounded-md px-2 text-[11px] font-medium truncate text-left shadow-sm hover:brightness-95"
+                            >
+                              {s.guestName || "Sin nombre"}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            {groups.length === 0 && (
+              <p className="text-sm text-stone-400 italic p-4">No hay alojamientos que coincidan con la búsqueda.</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {activeStay && (
+        <Modal title={unitLabel(rooms.find((r) => r.id === activeStay.roomId) || {})} onClose={() => setActiveStay(null)}>
+          <div className="text-sm text-stone-700 space-y-1.5">
+            <div><strong>Huésped:</strong> {activeStay.guestName || "Sin nombre"}</div>
+            <div><strong>Fechas:</strong> {activeStay.checkIn} → {activeStay.checkOut}</div>
+            <div><strong>Personas:</strong> {activeStay.numGuests}</div>
+            <div><strong>Régimen:</strong> {activeStay.mealPlan}</div>
+            <div><strong>Estado:</strong> <Badge tone={stayTone(activeStay)}>{stayTiming(activeStay)}</Badge></div>
+          </div>
+          <p className="text-xs text-stone-400 mt-3">Para editar esta reserva, ve a "Huéspedes y Alojamientos".</p>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* Administrador — auditoría y apertura/cierre del hotel                    */
 /* ---------------------------------------------------------------------- */
 
@@ -1596,4 +1831,3 @@ function AdminModule({ stays, persistStays, hotelStatus, persistHotelStatus, ema
     </div>
   );
 }
-
