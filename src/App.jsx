@@ -270,6 +270,28 @@ const primaryBtn = "bg-[#806c4d] hover:bg-[#6d5c42] text-white font-medium round
 const selectedToggle = "bg-[#806c4d] text-white border-[#806c4d]";
 const unselectedToggle = "border-stone-300 text-stone-600";
 
+// Campo de importe en euros: sin decimales forzados, admite cualquier número,
+// y arranca vacío en vez de mostrar "0" (así se puede escribir directamente).
+function MoneyField({ label, value, onChange }) {
+  return (
+    <Field label={label}>
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-sm pointer-events-none">€</span>
+        <input
+          type="number"
+          min="0"
+          step="any"
+          inputMode="decimal"
+          className={inputCls + " pl-7"}
+          value={value === 0 || value === undefined || value === null ? "" : value}
+          onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
+          placeholder="0"
+        />
+      </div>
+    </Field>
+  );
+}
+
 /* ---------------------------------------------------------------------- */
 /* Aplicación principal                                                    */
 /* ---------------------------------------------------------------------- */
@@ -972,9 +994,7 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
           </select>
         </Field>
       </div>
-      <Field label="Importe cobrado por unidad al confirmar (€, opcional)">
-        <input type="number" min="0" step="0.01" className={inputCls} value={pricePerUnit} onChange={(e) => setPricePerUnit(Number(e.target.value))} placeholder="0.00" />
-      </Field>
+      <MoneyField label="Importe cobrado por unidad al confirmar (opcional)" value={pricePerUnit} onChange={setPricePerUnit} />
 
       <div className="flex items-center justify-between mb-2 mt-1">
         <span className="text-xs font-medium text-stone-500">Unidades a incluir</span>
@@ -1066,12 +1086,8 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Cobrado antes de la estancia (€)">
-          <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaidBefore || 0} onChange={(e) => set("amountPaidBefore", Number(e.target.value))} placeholder="0.00" />
-        </Field>
-        <Field label="Cobrado al finalizar (€)">
-          <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaidAfter || 0} onChange={(e) => set("amountPaidAfter", Number(e.target.value))} placeholder="0.00" />
-        </Field>
+        <MoneyField label="Cobrado antes de la estancia" value={form.amountPaidBefore} onChange={(v) => set("amountPaidBefore", v)} />
+        <MoneyField label="Cobrado al finalizar" value={form.amountPaidAfter} onChange={(v) => set("amountPaidAfter", v)} />
       </div>
       <Field label="Estado de la reserva">
         <div className="flex gap-2">
@@ -1266,12 +1282,8 @@ function BookingModal({ stays, date, booking, onClose, onSave }) {
         <textarea className={inputCls} maxLength={400} rows={2} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="p. ej. mesa junto al patio, aniversario…" />
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Cobrado antes del servicio (€)">
-          <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaidBefore || 0} onChange={(e) => set("amountPaidBefore", Number(e.target.value))} placeholder="0.00" />
-        </Field>
-        <Field label="Cobrado al finalizar (€)">
-          <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaidAfter || 0} onChange={(e) => set("amountPaidAfter", Number(e.target.value))} placeholder="0.00" />
-        </Field>
+        <MoneyField label="Cobrado antes del servicio" value={form.amountPaidBefore} onChange={(v) => set("amountPaidBefore", v)} />
+        <MoneyField label="Cobrado al finalizar" value={form.amountPaidAfter} onChange={(v) => set("amountPaidAfter", v)} />
       </div>
 
       <button onClick={() => onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Guardar reserva</button>
@@ -2634,12 +2646,13 @@ function BackupPasswordModal({ onClose, onConfirmed }) {
 
 function StaffPanel({ adminEmail }) {
   const [staff, setStaff] = useState(null);
+  const [staffError, setStaffError] = useState(null);
   const [attendance, setAttendance] = useState(null);
   const [resetTarget, setResetTarget] = useState(null); // {id, email} | null
 
   const load = useCallback(() => {
-    fetchStaffDirectory().then(setStaff);
-    fetchDailyLogins(todayStr()).then(setAttendance);
+    fetchStaffDirectory().then((res) => { setStaff(res.items); setStaffError(res.error); });
+    fetchDailyLogins(todayStr()).then((res) => setAttendance(res.items));
   }, []);
 
   useEffect(() => {
@@ -2672,8 +2685,14 @@ function StaffPanel({ adminEmail }) {
         </div>
         {staff === null ? (
           <p className="text-sm text-stone-400 italic">Cargando…</p>
+        ) : staffError ? (
+          <div className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-lg px-3 py-2">
+            <p className="font-medium mb-1">No se pudo cargar el personal.</p>
+            <p className="font-mono break-all">{staffError}</p>
+            <p className="mt-2 text-rose-600">Comprueba que ejecutaste <code>supabase-TODO-EN-UNO.sql</code> completo en el SQL Editor de Supabase.</p>
+          </div>
         ) : staff.length === 0 ? (
-          <p className="text-sm text-stone-400 italic">No se encontró personal (o tu cuenta no tiene permiso para verlo).</p>
+          <p className="text-sm text-stone-400 italic">Todavía no hay ninguna cuenta con un rol asignado en la tabla "profiles".</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -2784,34 +2803,61 @@ function paidTotal(record) {
 
 function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
   const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [rangeMonths, setRangeMonths] = useState(6);
 
-  const months = lastNMonths(6);
+  const months = lastNMonths(rangeMonths);
+  const totalUnits = UNIDADES.length;
 
   const incomeByMonth = months.map((mKey) => {
-    const stayIncome = stays
-      .filter((s) => s.status !== "Cancelada" && s.checkIn && s.checkIn.startsWith(mKey))
-      .reduce((sum, s) => sum + paidTotal(s), 0);
+    const [y, m] = mKey.split("-").map(Number);
+    const daysInMonth = new Date(y, m, 0).getDate();
+
+    const monthStays = stays.filter((s) => s.status !== "Cancelada" && s.checkIn && s.checkIn.startsWith(mKey));
+    const stayIncome = monthStays.reduce((sum, s) => sum + paidTotal(s), 0);
+    const nightsSold = monthStays.reduce((sum, s) => sum + (daysBetween(s.checkIn, s.checkOut) + 1), 0);
+
     const restaurantIncome = bookings
       .filter((b) => b.date && b.date.startsWith(mKey))
       .reduce((sum, b) => sum + paidTotal(b), 0);
+
     const expenseTotal = expenses
       .filter((e) => e.date && e.date.startsWith(mKey))
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+    const income = stayIncome + restaurantIncome;
+    const adr = nightsSold > 0 ? stayIncome / nightsSold : 0;
+    const revpar = stayIncome / (daysInMonth * totalUnits);
+    const expenseRatio = income > 0 ? (expenseTotal / income) * 100 : 0;
+
     return {
       month: monthLabelOf(mKey),
       Hospedaje: Math.round(stayIncome * 100) / 100,
       Restaurante: Math.round(restaurantIncome * 100) / 100,
       Gastos: Math.round(expenseTotal * 100) / 100,
-      Neto: Math.round((stayIncome + restaurantIncome - expenseTotal) * 100) / 100,
+      Neto: Math.round((income - expenseTotal) * 100) / 100,
+      ADR: Math.round(adr * 100) / 100,
+      RevPAR: Math.round(revpar * 100) / 100,
+      RatioGastos: Math.round(expenseRatio * 10) / 10,
     };
   });
+
+  const thisMonth = incomeByMonth[incomeByMonth.length - 1];
 
   const totalStayIncome = stays.filter((s) => s.status !== "Cancelada").reduce((sum, s) => sum + paidTotal(s), 0);
   const totalRestaurantIncome = bookings.reduce((sum, b) => sum + paidTotal(b), 0);
   const totalIncome = totalStayIncome + totalRestaurantIncome;
   const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
   const netTotal = totalIncome - totalExpenses;
-  const thisMonth = incomeByMonth[incomeByMonth.length - 1];
+  const grossMargin = totalIncome > 0 ? (netTotal / totalIncome) * 100 : 0;
+
+  const stayCount = stays.filter((s) => s.status !== "Cancelada").length;
+  const avgStayValue = stayCount > 0 ? totalStayIncome / stayCount : 0;
+  const avgBookingValue = bookings.length > 0 ? totalRestaurantIncome / bookings.length : 0;
+
+  const revenueMixData = [
+    { name: "Hospedaje", value: Math.round(totalStayIncome * 100) / 100 },
+    { name: "Restaurante", value: Math.round(totalRestaurantIncome * 100) / 100 },
+  ];
 
   const expenseByCategory = {};
   EXPENSE_CATEGORIES.forEach((c) => (expenseByCategory[c] = 0));
@@ -2828,14 +2874,35 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile icon={TrendingUp} label="Ingresos este mes" value={`${(thisMonth?.Hospedaje + thisMonth?.Restaurante || 0).toFixed(2)} €`} />
-        <StatTile icon={BarChart3} label="Gastos este mes" value={`${(thisMonth?.Gastos || 0).toFixed(2)} €`} />
-        <StatTile icon={Award} label="Balance neto (histórico)" value={`${netTotal.toFixed(2)} €`} />
-        <StatTile icon={Timer} label="Ingresos totales registrados" value={`${totalIncome.toFixed(2)} €`} />
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h3 className="text-sm font-semibold text-stone-700">Sostenibilidad económica del complejo</h3>
+        <select value={rangeMonths} onChange={(e) => setRangeMonths(Number(e.target.value))} className={inputCls + " w-auto"}>
+          <option value={6}>Últimos 6 meses</option>
+          <option value={12}>Últimos 12 meses</option>
+          <option value={24}>Últimos 24 meses</option>
+        </select>
       </div>
 
-      <ChartCard title="Ingresos, gastos y balance neto — últimos 6 meses" height={240}>
+      {/* KPIs generales */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatTile icon={TrendingUp} label="Ingresos este mes" value={`${((thisMonth?.Hospedaje || 0) + (thisMonth?.Restaurante || 0)).toFixed(2)} €`} />
+        <StatTile icon={BarChart3} label="Gastos este mes" value={`${(thisMonth?.Gastos || 0).toFixed(2)} €`} />
+        <StatTile icon={Award} label="Balance neto (histórico)" value={`${netTotal.toFixed(2)} €`} />
+        <StatTile icon={Timer} label="Margen bruto (histórico)" value={`${grossMargin.toFixed(1)} %`} />
+      </div>
+
+      {/* KPIs hoteleros */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatTile icon={BedDouble} label="ADR — tarifa media/noche" value={`${(thisMonth?.ADR || 0).toFixed(2)} €`} />
+        <StatTile icon={BarChart3} label="RevPAR — ingreso por unidad disponible" value={`${(thisMonth?.RevPAR || 0).toFixed(2)} €`} />
+        <StatTile icon={UtensilsCrossed} label="Ratio gastos/ingresos (este mes)" value={`${(thisMonth?.RatioGastos || 0).toFixed(1)} %`} />
+        <StatTile icon={Users} label="Ingreso medio por reserva" value={`${avgStayValue.toFixed(2)} € / ${avgBookingValue.toFixed(2)} €`} />
+      </div>
+      <p className="text-[11px] text-stone-400 -mt-2">
+        ADR = ingresos de hospedaje ÷ noches vendidas · RevPAR = ingresos de hospedaje ÷ (unidades totales × días del mes) · Ingreso medio: hospedaje / restaurante
+      </p>
+
+      <ChartCard title={`Ingresos, gastos y balance neto — últimos ${rangeMonths} meses`} height={240}>
         <BarChart data={incomeByMonth}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="month" tick={{ fontSize: 11 }} />
@@ -2848,8 +2915,43 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
         </BarChart>
       </ChartCard>
 
+      <div className="grid sm:grid-cols-2 gap-4">
+        <ChartCard title="Mix de ingresos: Hospedaje vs. Restaurante" height={210}>
+          <PieChart>
+            <Pie data={revenueMixData} dataKey="value" nameKey="name" outerRadius={70} label={(d) => `${d.name}: ${((d.value / (totalIncome || 1)) * 100).toFixed(0)}%`}>
+              <Cell fill={CHART_GREEN} />
+              <Cell fill={CHART_BLUE} />
+            </Pie>
+            <Tooltip formatter={(v) => `${v} €`} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+          </PieChart>
+        </ChartCard>
+
+        <ChartCard title="Ratio gastos/ingresos por mes (%)" height={210}>
+          <LineChart data={incomeByMonth}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} unit="%" />
+            <Tooltip formatter={(v) => `${v} %`} />
+            <Line type="monotone" dataKey="RatioGastos" stroke={CHART_ROSE} strokeWidth={2} dot={{ r: 3 }} name="Gastos / Ingresos" />
+          </LineChart>
+        </ChartCard>
+      </div>
+
+      <ChartCard title="Evolución de ADR y RevPAR" height={220}>
+        <LineChart data={incomeByMonth}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} unit="€" />
+          <Tooltip formatter={(v) => `${v} €`} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Line type="monotone" dataKey="ADR" stroke={CHART_GOLD_DARK} strokeWidth={2} dot={{ r: 3 }} />
+          <Line type="monotone" dataKey="RevPAR" stroke={CHART_BLUE} strokeWidth={2} dot={{ r: 3 }} />
+        </LineChart>
+      </ChartCard>
+
       {expenseCategoryData.length > 0 && (
-        <ChartCard title="Gastos por categoría" height={200}>
+        <ChartCard title="Gastos por categoría (histórico)" height={200}>
           <BarChart data={expenseCategoryData} layout="vertical" margin={{ left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
             <XAxis type="number" tick={{ fontSize: 11 }} />
@@ -2919,9 +3021,7 @@ function ExpenseModal({ onClose, onSave }) {
       <Field label="Descripción">
         <input className={inputCls} maxLength={200} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="p. ej. Compra de vino, refuerzo de camareros boda García" />
       </Field>
-      <Field label="Importe (€)">
-        <input type="number" min="0" step="0.01" className={inputCls} value={form.amount} onChange={(e) => set("amount", Number(e.target.value))} />
-      </Field>
+      <MoneyField label="Importe" value={form.amount} onChange={(v) => set("amount", v)} />
       <button onClick={() => form.description && form.amount > 0 && onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Guardar gasto</button>
     </Modal>
   );

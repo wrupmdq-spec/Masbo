@@ -136,12 +136,12 @@ export async function fetchStaffDirectory() {
     const { data, error } = await supabase.rpc("get_staff_directory");
     if (error) {
       console.error("Error al leer el directorio de personal", error);
-      return [];
+      return { items: [], error: error.message || String(error) };
     }
-    return data || [];
+    return { items: data || [], error: null };
   } catch (e) {
     console.error("Error al leer el directorio de personal", e);
-    return [];
+    return { items: [], error: String(e) };
   }
 }
 
@@ -183,10 +183,10 @@ export async function recordDailyLogin() {
 export async function fetchDailyLogins(dateStr) {
   try {
     const { data, error } = await supabase.rpc("get_daily_logins", { target_date: dateStr });
-    if (error) { console.error("Error leyendo asistencia", error); return []; }
-    return data || [];
+    if (error) { console.error("Error leyendo asistencia", error); return { items: [], error: error.message || String(error) }; }
+    return { items: data || [], error: null };
   } catch (e) {
     console.error("Error leyendo asistencia", e);
-    return [];
+    return { items: [], error: String(e) };
   }
 }
