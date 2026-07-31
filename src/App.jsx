@@ -10,7 +10,7 @@ import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
-import { loadShared, saveShared, supabase, getProfile, logAction, fetchAuditLog } from "./supabaseClient";
+import { loadShared, saveShared, supabase, getProfile, logAction, fetchAuditLog, fetchFullBackup, fetchStaffDirectory, adminResetPassword, recordDailyLogin, fetchDailyLogins } from "./supabaseClient";
 import Login from "./Login";
 import SetPassword from "./SetPassword";
 
@@ -54,10 +54,22 @@ const EVENT_TYPES = [
   "Boda", "Reunión de empresa", "Retiro de bienestar", "Taller o Seminario",
   "Team Building", "Evento de networking", "Celebración especial", "Otro",
 ];
-const EVENT_SPACES = [
-  "Patio Central (Masía s. XVII)", "Salón Principal", "Jardines", "Sala de Reuniones",
-  "Restaurante", "Zona de Piscinas", "Museo del Vino y del Aceite", "Otro",
+// Salones y espacios exteriores: se reservan para eventos y, al finalizar,
+// pasan automáticamente a "Sucia" para que limpieza los revise.
+const SALONES_BASE = [
+  { id: "salon-noble", name: "Salón Noble", category: "Salones", color: "#0891b2" },
+  { id: "salon-restaurante", name: "Restaurante (salón)", category: "Salones", color: "#0891b2" },
+  { id: "salon-baloon", name: "Salón Baloon", category: "Salones", color: "#0891b2" },
+  { id: "ext-bar-piscina", name: "Bar Piscina", category: "Espacios Exteriores", color: "#16a34a" },
+  { id: "ext-moreras", name: "Moreras", category: "Espacios Exteriores", color: "#16a34a" },
+  { id: "ext-plaza", name: "Plaza", category: "Espacios Exteriores", color: "#16a34a" },
 ];
+const SALON_CATEGORIAS = ["Salones", "Espacios Exteriores"];
+const EVENT_SPACES = [...SALONES_BASE.map((s) => s.name), "Otro"];
+
+function seedSalones() {
+  return SALONES_BASE.map((s) => ({ ...s, cleaningStatus: "Limpia", cleaningNotes: "" }));
+}
 
 const PLANNING_MIN = "2026-07";
 const PLANNING_MAX = "2030-12";
@@ -133,6 +145,34 @@ function seedRooms() {
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+// Pequeño "bip" generado con Web Audio API (no necesita ningún archivo de sonido).
+// Suena dos veces para que sea más difícil de pasar por alto.
+function playAlertSound() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const beep = (delay) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.frequency.value = 880;
+      const t0 = ctx.currentTime + delay;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.35, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+      o.start(t0);
+      o.stop(t0 + 0.4);
+    };
+    beep(0);
+    beep(0.45);
+    setTimeout(() => ctx.close(), 1200);
+  } catch (e) {
+    console.error("No se pudo reproducir el sonido de alerta", e);
+  }
+}
 const unitLabel = (r) => (r.number ? `${r.type} ${r.number}` : r.type);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -165,6 +205,8 @@ const KEYS = {
   tickets: "masboronat:v3:tickets-mantenimiento",
   events: "masboronat:v3:eventos",
   hotelStatus: "masboronat:v3:estado-hotel",
+  salones: "masboronat:v3:salones",
+  expenses: "masboronat:v3:gastos",
 };
 
 /* ---------------------------------------------------------------------- */
@@ -244,9 +286,12 @@ export default function MasBoronatOps() {
   const [tickets, setTickets] = useState(null);
   const [events, setEvents] = useState(null);
   const [hotelStatus, setHotelStatus] = useState(null);
+  const [salones, setSalones] = useState(null);
+  const [expenses, setExpenses] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [connectionIssue, setConnectionIssue] = useState(false);
+  const [alertToast, setAlertToast] = useState(null);
   const failCountRef = useRef(0);
 
   // Sesión de autenticación
@@ -263,31 +308,48 @@ export default function MasBoronatOps() {
     getProfile(session.user.id).then((p) => { setProfile(p); setProfileLoading(false); });
   }, [session]);
 
+  // Registra "hoy ya entré" una vez por sesión, para el control de asistencia del Administrador
+  const attendanceLoggedRef = useRef(false);
+  useEffect(() => {
+    if (profile && profile.role && !attendanceLoggedRef.current) {
+      attendanceLoggedRef.current = true;
+      recordDailyLogin();
+    }
+    if (!profile) attendanceLoggedRef.current = false;
+  }, [profile]);
+
   const refreshAll = useCallback(async (initial = false) => {
     setSyncing(true);
     try {
-      const [r, st, b, t, ev, hs] = await Promise.all([
+      const [r, st, b, t, ev, hs, sal, exp] = await Promise.all([
         loadShared(KEYS.rooms, null),
         loadShared(KEYS.stays, null),
         loadShared(KEYS.bookings, null),
         loadShared(KEYS.tickets, null),
         loadShared(KEYS.events, null),
         loadShared(KEYS.hotelStatus, null),
+        loadShared(KEYS.salones, null),
+        loadShared(KEYS.expenses, null),
       ]);
       if (initial) {
         const seededRooms = r || seedRooms();
+        const seededSalones = sal || seedSalones();
         setRooms(seededRooms);
         setStays(st || []);
         setBookings(b || []);
         setTickets(t || []);
         setEvents(ev || []);
         setHotelStatus(hs || { closed: false });
+        setSalones(seededSalones);
+        setExpenses(exp || []);
         if (!r) await saveShared(KEYS.rooms, seededRooms);
         if (!st) await saveShared(KEYS.stays, []);
         if (!b) await saveShared(KEYS.bookings, []);
         if (!t) await saveShared(KEYS.tickets, []);
         if (!ev) await saveShared(KEYS.events, []);
         if (!hs) await saveShared(KEYS.hotelStatus, { closed: false });
+        if (!sal) await saveShared(KEYS.salones, seededSalones);
+        if (!exp) await saveShared(KEYS.expenses, []);
       } else {
         if (r) setRooms(r);
         if (st) setStays(st);
@@ -295,6 +357,8 @@ export default function MasBoronatOps() {
         if (t) setTickets(t);
         if (ev) setEvents(ev);
         if (hs) setHotelStatus(hs);
+        if (sal) setSalones(sal);
+        if (exp) setExpenses(exp);
       }
       failCountRef.current = 0;
       setConnectionIssue(false);
@@ -362,6 +426,73 @@ export default function MasBoronatOps() {
     await saveShared(KEYS.hotelStatus, next);
     logAction({ email: session.user.email, role, module: "Sistema", action });
   };
+  const persistSalones = async (next, actionOverride) => {
+    const action = actionOverride || summarizeChange(salones, next, "salón/espacio");
+    setSalones(next);
+    await saveShared(KEYS.salones, next);
+    logAction({ email: session.user.email, role, module: "Limpieza / Salones", action });
+  };
+  const persistExpenses = async (next) => {
+    const action = summarizeChange(expenses, next, "gasto");
+    setExpenses(next);
+    await saveShared(KEYS.expenses, next);
+    logAction({ email: session.user.email, role, module: "Finanzas", action });
+  };
+
+  // Al pasar la fecha de un evento, lo marca "Finalizado" automáticamente y
+  // ensucia el salón/espacio usado, para que limpieza lo revise.
+  // Solo lo ejecutan los roles que pueden escribir en Eventos y Salones (admin/recepción),
+  // para respetar los mismos permisos que ya existen a nivel de base de datos.
+  useEffect(() => {
+    if (!events || !salones) return;
+    if (role !== "admin" && role !== "reception") return;
+    const today = todayStr();
+    const toFinalize = events.filter((e) => e.date < today && e.status !== "Finalizado" && e.status !== "Cancelado");
+    if (toFinalize.length === 0) return;
+    const finalizingIds = new Set(toFinalize.map((e) => e.id));
+    const spaceNames = new Set(toFinalize.map((e) => e.space));
+    const updatedEvents = events.map((e) => (finalizingIds.has(e.id) ? { ...e, status: "Finalizado" } : e));
+    const updatedSalones = salones.map((s) => (spaceNames.has(s.name) ? { ...s, cleaningStatus: "Sucia" } : s));
+    persistEvents(updatedEvents);
+    persistSalones(updatedSalones, `Finalizó automáticamente ${toFinalize.length} evento(s) y marcó su(s) espacio(s) como sucio(s)`);
+  }, [events, salones, role]); // eslint-disable-line
+
+  // Alerta con sonido: avisa a Limpieza/Mantenimiento en cuanto aparece una tarea nueva en su sección
+  const prevPendingRef = useRef(null);
+  useEffect(() => {
+    if (!role || !tickets || !rooms || !salones) return;
+    if (role !== "maintenance" && role !== "housekeeping") return;
+
+    let pending = 0;
+    let label = "";
+    if (role === "maintenance") {
+      pending = tickets.filter((t) => t.status !== "Resuelto").length
+        + salones.filter((s) => s.category === "Espacios Exteriores" && s.cleaningStatus !== "Limpia").length;
+      label = "Mantenimiento";
+    } else {
+      pending = rooms.filter((r) => r.cleaningStatus !== "Limpia").length
+        + salones.filter((s) => s.category === "Salones" && s.cleaningStatus !== "Limpia").length;
+      label = "Limpieza";
+    }
+
+    if (prevPendingRef.current !== null && pending > prevPendingRef.current) {
+      playAlertSound();
+      setAlertToast(`🔔 Hay una tarea nueva en ${label}`);
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        try { new Notification("Mas Boronat", { body: `Nueva tarea pendiente en ${label}`, icon: "/icon-192.png" }); } catch (e) { /* noop */ }
+      }
+      const t = setTimeout(() => setAlertToast(null), 6000);
+      return () => clearTimeout(t);
+    }
+    prevPendingRef.current = pending;
+  }, [role, tickets, rooms, salones]);
+
+  // Pide permiso de notificaciones una vez, para el personal de limpieza/mantenimiento
+  useEffect(() => {
+    if ((role === "maintenance" || role === "housekeeping") && typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, [role]);
 
   // --- Pantallas de autenticación ---
   if (session === undefined) {
@@ -417,7 +548,7 @@ export default function MasBoronatOps() {
   }
   const canEdit = (module) => cfg.edit.includes(module);
 
-  if (!rooms || !stays || !bookings || !tickets || !events || !hotelStatus) {
+  if (!rooms || !stays || !bookings || !tickets || !events || !hotelStatus || !salones || !expenses) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-stone-50">
         <div className="flex items-center gap-2 text-stone-500">
@@ -442,18 +573,23 @@ export default function MasBoronatOps() {
           🔒 El hotel está cerrado temporalmente. No se pueden crear nuevas reservas de alojamiento ni de restaurante.
         </div>
       )}
+      {alertToast && (
+        <div className="bg-amber-500 text-white text-xs text-center py-2 px-3 font-medium animate-pulse">
+          {alertToast}
+        </div>
+      )}
 
       <main className="max-w-6xl mx-auto px-3 sm:px-6 py-5 pb-16">
         {tab === "dashboard" && <Dashboard rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} events={events} setTab={setTab} />}
         {tab === "guests" && <GuestsModule rooms={rooms} stays={stays} persistStays={persistStays} editable={canEdit("guests")} deletable={canDelete(role, "guests")} hotelClosed={hotelStatus.closed && role !== "admin"} />}
         {tab === "restaurant" && <RestaurantModule stays={stays} bookings={bookings} persistBookings={persistBookings} editable={canEdit("restaurant")} deletable={canDelete(role, "restaurant")} hotelClosed={hotelStatus.closed && role !== "admin"} />}
-        {tab === "housekeeping" && <HousekeepingModule rooms={rooms} persistRooms={persistRooms} editable={canEdit("housekeeping")} />}
-        {tab === "maintenance" && <MaintenanceModule tickets={tickets} persistTickets={persistTickets} editable={canEdit("maintenance")} deletable={canDelete(role, "maintenance")} />}
+        {tab === "housekeeping" && <HousekeepingModule rooms={rooms} persistRooms={persistRooms} salones={salones} persistSalones={persistSalones} editable={canEdit("housekeeping")} />}
+        {tab === "maintenance" && <MaintenanceModule tickets={tickets} persistTickets={persistTickets} rooms={rooms} salones={salones} persistSalones={persistSalones} editable={canEdit("maintenance")} deletable={canDelete(role, "maintenance")} />}
         {tab === "events" && <EventsModule events={events} persistEvents={persistEvents} editable={canEdit("events")} deletable={canDelete(role, "events")} />}
         {tab === "planning" && <PlanningModule stays={stays} bookings={bookings} events={events} />}
         {tab === "planningGeneral" && <PlanningGeneralModule rooms={rooms} stays={stays} />}
         {tab === "admin" && role === "admin" && (
-          <AdminModule rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus} email={session.user.email} />
+          <AdminModule rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} expenses={expenses} persistExpenses={persistExpenses} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus} email={session.user.email} />
         )}
       </main>
     </div>
@@ -713,7 +849,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                             <span className="font-medium text-stone-700 truncate">{s.guestName || "Sin nombre"}</span>
                             <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? "Canc." : stayTiming(s)}</Badge>
                           </div>
-                          <div className="text-stone-400 mt-0.5 truncate">{s.checkIn} → {s.checkOut}</div>
+                          <div className="text-stone-400 mt-0.5 truncate">{s.checkIn} → {s.checkOut}{(s.amountPaidBefore || s.amountPaidAfter) ? ` · ${(Number(s.amountPaidBefore || 0) + Number(s.amountPaidAfter || 0)).toFixed(2)} €` : ""}</div>
                           {(editable || deletable) && (
                             <div className="flex gap-2 mt-0.5">
                               {editable && <button onClick={() => setEditingStay(s)} className="text-[#6d5c42] font-medium">Editar</button>}
@@ -764,6 +900,7 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
   const [checkOut, setCheckOut] = useState(todayStr());
   const [mealPlan, setMealPlan] = useState("Ninguno");
   const [guestsPerUnit, setGuestsPerUnit] = useState(2);
+  const [pricePerUnit, setPricePerUnit] = useState(0);
   const [selected, setSelected] = useState({}); // { roomId: true }
 
   const groups = CATEGORIAS.map((c) => ({ ...c, rooms: rooms.filter((r) => r.type === c.type) }));
@@ -801,6 +938,8 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
         numGuests: Math.min(guestsPerUnit, room.capacity),
         mealPlan,
         status: "Confirmada",
+        amountPaidBefore: Number(pricePerUnit) || 0,
+        amountPaidAfter: 0,
       };
     });
     onSave(newStays);
@@ -833,6 +972,9 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
           </select>
         </Field>
       </div>
+      <Field label="Importe cobrado por unidad al confirmar (€, opcional)">
+        <input type="number" min="0" step="0.01" className={inputCls} value={pricePerUnit} onChange={(e) => setPricePerUnit(Number(e.target.value))} placeholder="0.00" />
+      </Field>
 
       <div className="flex items-center justify-between mb-2 mt-1">
         <span className="text-xs font-medium text-stone-500">Unidades a incluir</span>
@@ -881,7 +1023,7 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
 
 function StayModal({ room, stay, otherStays, onClose, onSave }) {
   const [form, setForm] = useState(
-    stay || { roomId: room.id, roomLabel: unitLabel(room), guestName: "", checkIn: todayStr(), checkOut: todayStr(), numGuests: 1, mealPlan: "Ninguno", status: "Confirmada" }
+    stay || { roomId: room.id, roomLabel: unitLabel(room), guestName: "", checkIn: todayStr(), checkOut: todayStr(), numGuests: 1, mealPlan: "Ninguno", status: "Confirmada", amountPaidBefore: 0, amountPaidAfter: 0 }
   );
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -921,6 +1063,14 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
           <select className={inputCls} value={form.mealPlan} onChange={(e) => set("mealPlan", e.target.value)}>
             {MEAL_PLANS.map((m) => <option key={m}>{m}</option>)}
           </select>
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Cobrado antes de la estancia (€)">
+          <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaidBefore || 0} onChange={(e) => set("amountPaidBefore", Number(e.target.value))} placeholder="0.00" />
+        </Field>
+        <Field label="Cobrado al finalizar (€)">
+          <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaidAfter || 0} onChange={(e) => set("amountPaidAfter", Number(e.target.value))} placeholder="0.00" />
         </Field>
       </div>
       <Field label="Estado de la reserva">
@@ -1000,6 +1150,7 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
                         <span className="flex items-center gap-1"><Users size={11} /> {b.numPeople}</span>
                         {b.roomLabel && <span>{b.roomLabel}</span>}
                         {b.contact && <span className="flex items-center gap-1"><Phone size={11} /> {b.contact}</span>}
+                        {(b.amountPaidBefore || b.amountPaidAfter) ? <span className="font-medium text-stone-700">{(Number(b.amountPaidBefore || 0) + Number(b.amountPaidAfter || 0)).toFixed(2)} €</span> : null}
                       </div>
                       {b.menuNotes && (
                         <div className="text-xs text-[#6d5c42] bg-[#ab9574]/10 rounded-md px-2 py-1 mt-1.5 flex items-start gap-1">
@@ -1043,7 +1194,7 @@ function BookingModal({ stays, date, booking, onClose, onSave }) {
     booking || {
       date, timeSlot: "Desayuno", time: "08:00", clientType: "Huésped del Resort",
       stayId: "", roomLabel: "", guestName: "", numPeople: 2, contact: "",
-      menuNotes: "", allergens: "", notes: "",
+      menuNotes: "", allergens: "", notes: "", amountPaidBefore: 0, amountPaidAfter: 0,
     }
   );
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -1114,9 +1265,56 @@ function BookingModal({ stays, date, booking, onClose, onSave }) {
       <Field label="Otras peticiones (mesa, ocasión especial…)">
         <textarea className={inputCls} maxLength={400} rows={2} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="p. ej. mesa junto al patio, aniversario…" />
       </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Cobrado antes del servicio (€)">
+          <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaidBefore || 0} onChange={(e) => set("amountPaidBefore", Number(e.target.value))} placeholder="0.00" />
+        </Field>
+        <Field label="Cobrado al finalizar (€)">
+          <input type="number" min="0" step="0.01" className={inputCls} value={form.amountPaidAfter || 0} onChange={(e) => set("amountPaidAfter", Number(e.target.value))} placeholder="0.00" />
+        </Field>
+      </div>
 
       <button onClick={() => onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Guardar reserva</button>
     </Modal>
+  );
+}
+
+function cleanStatusIcon(status) {
+  if (status === "Limpia") return <CheckCircle2 size={13} />;
+  if (status === "Sucia") return <AlertTriangle size={13} />;
+  if (status === "En Progreso") return <RefreshCw size={13} />;
+  return <Circle size={13} />;
+}
+
+function CleaningStatusCard({ id, label, cleaningStatus, cleaningNotes, onCycle, onSaveNote, noteKind, editable, noteEditing, setNoteEditing }) {
+  return (
+    <div className="bg-white rounded-xl border border-stone-200 p-2.5">
+      <div className="flex items-center justify-between mb-1.5 gap-1">
+        <span className="font-semibold text-stone-800 text-sm truncate">{label}</span>
+        <Badge tone={cleanTone(cleaningStatus)}>
+          <span className="flex items-center gap-1">{cleanStatusIcon(cleaningStatus)} {cleaningStatus}</span>
+        </Badge>
+      </div>
+      {editable ? (
+        <button onClick={() => onCycle(id)} className="w-full text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-1.5 mb-1.5">
+          Toca para actualizar →
+        </button>
+      ) : null}
+      {cleaningNotes && (
+        <div className="text-[11px] text-stone-500 bg-stone-50 rounded-md px-2 py-1 mb-1.5 flex items-start gap-1">
+          <StickyNote size={10} className="mt-0.5 shrink-0" /> {cleaningNotes}
+        </div>
+      )}
+      {editable && (
+        noteEditing && noteEditing.kind === noteKind && noteEditing.id === id ? (
+          <NoteInline initial={cleaningNotes} onSave={(v) => onSaveNote(id, v)} onCancel={() => setNoteEditing(null)} />
+        ) : (
+          <button onClick={() => setNoteEditing({ kind: noteKind, id })} className="text-[11px] text-[#6d5c42] font-medium">
+            {cleaningNotes ? "Editar nota" : "+ Añadir nota"}
+          </button>
+        )
+      )}
+    </div>
   );
 }
 
@@ -1124,43 +1322,53 @@ function BookingModal({ stays, date, booking, onClose, onSave }) {
 /* Limpieza                                                                 */
 /* ---------------------------------------------------------------------- */
 
-function HousekeepingModule({ rooms, persistRooms, editable }) {
-  const [noteEditing, setNoteEditing] = useState(null);
+function HousekeepingModule({ rooms, persistRooms, salones, persistSalones, editable }) {
+  const [noteEditing, setNoteEditing] = useState(null); // { kind: "room"|"salon", id }
   const [typeFilter, setTypeFilter] = useState("Todos");
   const [onlyPending, setOnlyPending] = useState(false);
 
-  const cycleStatus = async (id) => {
+  const cycleRoomStatus = async (id) => {
     const current = rooms.find((r) => r.id === id);
     const nextStatus = CLEAN_STATUSES[(CLEAN_STATUSES.indexOf(current.cleaningStatus) + 1) % CLEAN_STATUSES.length];
     await persistRooms(rooms.map((r) => (r.id === id ? { ...r, cleaningStatus: nextStatus } : r)));
   };
-  const saveNote = async (id, note) => {
+  const saveRoomNote = async (id, note) => {
     await persistRooms(rooms.map((r) => (r.id === id ? { ...r, cleaningNotes: note } : r)));
     setNoteEditing(null);
   };
-  const icon = (status) => {
-    if (status === "Limpia") return <CheckCircle2 size={13} />;
-    if (status === "Sucia") return <AlertTriangle size={13} />;
-    if (status === "En Progreso") return <RefreshCw size={13} />;
-    return <Circle size={13} />;
+  const cycleSalonStatus = async (id) => {
+    const current = salones.find((s) => s.id === id);
+    const nextStatus = CLEAN_STATUSES[(CLEAN_STATUSES.indexOf(current.cleaningStatus) + 1) % CLEAN_STATUSES.length];
+    await persistSalones(salones.map((s) => (s.id === id ? { ...s, cleaningStatus: nextStatus } : s)));
+  };
+  const saveSalonNote = async (id, note) => {
+    await persistSalones(salones.map((s) => (s.id === id ? { ...s, cleaningNotes: note } : s)));
+    setNoteEditing(null);
   };
 
-  const filtered = rooms.filter((r) => {
+  const filteredRooms = rooms.filter((r) => {
     if (typeFilter !== "Todos" && r.type !== typeFilter) return false;
     if (onlyPending && r.cleaningStatus === "Limpia") return false;
     return true;
   });
-
-  const groups = CATEGORIAS.map((c) => ({ ...c, rooms: filtered.filter((r) => r.type === c.type) })).filter(
+  const roomGroups = CATEGORIAS.map((c) => ({ ...c, rooms: filteredRooms.filter((r) => r.type === c.type) })).filter(
     (g) => g.rooms.length > 0
   );
-  const pendingCount = rooms.filter((r) => r.cleaningStatus !== "Limpia").length;
+
+  // Los espacios exteriores son solo de Mantenimiento; aquí solo se gestionan los salones interiores.
+  const interiorSalones = salones.filter((s) => s.category === "Salones");
+  const filteredSalones = interiorSalones.filter((s) => (onlyPending ? s.cleaningStatus !== "Limpia" : true));
+  const salonGroups = filteredSalones.length > 0
+    ? [{ type: "Salones", color: SALONES_BASE.find((s) => s.category === "Salones")?.color || "#0891b2", items: filteredSalones }]
+    : [];
+
+  const pendingCount = rooms.filter((r) => r.cleaningStatus !== "Limpia").length + interiorSalones.filter((s) => s.cleaningStatus !== "Limpia").length;
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Limpieza — Estado de Alojamientos</h2>
+          <h2 className="text-lg font-semibold text-stone-800">Limpieza — Alojamientos, Salones y Espacios</h2>
           <p className="text-xs text-stone-400">{pendingCount === 0 ? "Todo limpio ahora mismo" : `${pendingCount} unidad${pendingCount !== 1 ? "es" : ""} por revisar`}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1176,7 +1384,7 @@ function HousekeepingModule({ rooms, persistRooms, editable }) {
         </div>
       </div>
 
-      {groups.map((g) => (
+      {roomGroups.map((g) => (
         <div key={g.type} className="mb-5">
           <div className="flex items-center gap-2 mb-2">
             <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: g.color }} />
@@ -1185,38 +1393,55 @@ function HousekeepingModule({ rooms, persistRooms, editable }) {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
             {g.rooms.map((r) => (
-              <div key={r.id} className="bg-white rounded-xl border border-stone-200 p-2.5">
-                <div className="flex items-center justify-between mb-1.5 gap-1">
-                  <span className="font-semibold text-stone-800 text-sm truncate">{unitLabel(r)}</span>
-                  <Badge tone={cleanTone(r.cleaningStatus)}>
-                    <span className="flex items-center gap-1">{icon(r.cleaningStatus)} {r.cleaningStatus}</span>
-                  </Badge>
-                </div>
-                {editable ? (
-                  <button onClick={() => cycleStatus(r.id)} className="w-full text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-1.5 mb-1.5">
-                    Toca para actualizar →
-                  </button>
-                ) : null}
-                {r.cleaningNotes && (
-                  <div className="text-[11px] text-stone-500 bg-stone-50 rounded-md px-2 py-1 mb-1.5 flex items-start gap-1">
-                    <StickyNote size={10} className="mt-0.5 shrink-0" /> {r.cleaningNotes}
-                  </div>
-                )}
-                {editable && (
-                  noteEditing === r.id ? (
-                    <NoteInline initial={r.cleaningNotes} onSave={(v) => saveNote(r.id, v)} onCancel={() => setNoteEditing(null)} />
-                  ) : (
-                    <button onClick={() => setNoteEditing(r.id)} className="text-[11px] text-[#6d5c42] font-medium">
-                      {r.cleaningNotes ? "Editar nota" : "+ Añadir nota"}
-                    </button>
-                  )
-                )}
-              </div>
+              <CleaningStatusCard
+                key={r.id}
+                id={r.id}
+                label={unitLabel(r)}
+                cleaningStatus={r.cleaningStatus}
+                cleaningNotes={r.cleaningNotes}
+                onCycle={cycleRoomStatus}
+                onSaveNote={saveRoomNote}
+                noteKind="room"
+                editable={editable}
+                noteEditing={noteEditing}
+                setNoteEditing={setNoteEditing}
+              />
             ))}
           </div>
         </div>
       ))}
-      {groups.length === 0 && <p className="text-sm text-stone-400 italic">No hay unidades que coincidan con el filtro.</p>}
+
+      {salonGroups.map((g) => (
+        <div key={g.type} className="mb-5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: g.color }} />
+            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: g.color }}>{g.type}</h3>
+            <span className="text-[11px] text-stone-400">({g.items.length})</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+            {g.items.map((s) => (
+              <CleaningStatusCard
+                key={s.id}
+                id={s.id}
+                label={s.name}
+                cleaningStatus={s.cleaningStatus}
+                cleaningNotes={s.cleaningNotes}
+                onCycle={cycleSalonStatus}
+                onSaveNote={saveSalonNote}
+                noteKind="salon"
+                editable={editable}
+                noteEditing={noteEditing}
+                setNoteEditing={setNoteEditing}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {roomGroups.length === 0 && salonGroups.length === 0 && (
+        <p className="text-sm text-stone-400 italic">No hay unidades que coincidan con el filtro.</p>
+      )}
+      <p className="text-[11px] text-stone-400 mt-2">Los salones se marcan "Sucia" automáticamente en cuanto pasa la fecha de un evento confirmado en ese espacio.</p>
     </div>
   );
 }
@@ -1238,9 +1463,22 @@ function NoteInline({ initial, onSave, onCancel }) {
 /* Mantenimiento                                                             */
 /* ---------------------------------------------------------------------- */
 
-function MaintenanceModule({ tickets, persistTickets, editable, deletable }) {
+function MaintenanceModule({ tickets, persistTickets, rooms, salones, persistSalones, editable, deletable }) {
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState("Todos");
+  const [noteEditing, setNoteEditing] = useState(null);
+
+  const exteriorSalones = salones.filter((s) => s.category === "Espacios Exteriores");
+
+  const cycleExteriorStatus = async (id) => {
+    const current = salones.find((s) => s.id === id);
+    const nextStatus = CLEAN_STATUSES[(CLEAN_STATUSES.indexOf(current.cleaningStatus) + 1) % CLEAN_STATUSES.length];
+    await persistSalones(salones.map((s) => (s.id === id ? { ...s, cleaningStatus: nextStatus } : s)));
+  };
+  const saveExteriorNote = async (id, note) => {
+    await persistSalones(salones.map((s) => (s.id === id ? { ...s, cleaningNotes: note } : s)));
+    setNoteEditing(null);
+  };
 
   const create = async (ticket) => {
     await persistTickets([{ ...ticket, id: uid(), timestamp: new Date().toISOString() }, ...tickets]);
@@ -1266,6 +1504,28 @@ function MaintenanceModule({ tickets, persistTickets, editable, deletable }) {
 
   return (
     <div>
+      <div className="mb-5">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Espacios Exteriores</h2>
+        <p className="text-xs text-stone-400 mb-2">Bar Piscina, Moreras y Plaza — se marcan solos como "Sucia" al terminar un evento ahí</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          {exteriorSalones.map((s) => (
+            <CleaningStatusCard
+              key={s.id}
+              id={s.id}
+              label={s.name}
+              cleaningStatus={s.cleaningStatus}
+              cleaningNotes={s.cleaningNotes}
+              onCycle={cycleExteriorStatus}
+              onSaveNote={saveExteriorNote}
+              noteKind="ext-salon"
+              editable={editable}
+              noteEditing={noteEditing}
+              setNoteEditing={setNoteEditing}
+            />
+          ))}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h2 className="text-lg font-semibold text-stone-800">Tickets de Mantenimiento</h2>
         <div className="flex items-center gap-2">
@@ -1317,18 +1577,49 @@ function MaintenanceModule({ tickets, persistTickets, editable, deletable }) {
         </div>
       )}
 
-      {showForm && <TicketModal onClose={() => setShowForm(false)} onSave={create} />}
+      {showForm && <TicketModal rooms={rooms} salones={salones} onClose={() => setShowForm(false)} onSave={create} />}
     </div>
   );
 }
 
-function TicketModal({ onClose, onSave }) {
+function TicketModal({ rooms, salones, onClose, onSave }) {
   const [form, setForm] = useState({ location: "", issue: "", priority: "Media", status: "Pendiente", assignedTo: "" });
+  const [customLocation, setCustomLocation] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const onLocationSelect = (value) => {
+    if (value === "__otro__") { setCustomLocation(true); set("location", ""); }
+    else { setCustomLocation(false); set("location", value); }
+  };
+
   return (
     <Modal title="Nuevo ticket de mantenimiento" onClose={onClose}>
-      <Field label="Alojamiento / zona">
-        <input className={inputCls} maxLength={120} value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="p. ej. Flandes 3, Restaurante, Zona de Piscinas" />
+      <Field label="Alojamiento / salón / espacio">
+        {!customLocation ? (
+          <select className={inputCls} value={form.location} onChange={(e) => onLocationSelect(e.target.value)}>
+            <option value="">Seleccionar…</option>
+            {TIPOS_ALOJAMIENTO.map((t) => (
+              <optgroup key={t} label={t}>
+                {rooms.filter((r) => r.type === t).map((r) => (
+                  <option key={r.id} value={unitLabel(r)}>{unitLabel(r)}</option>
+                ))}
+              </optgroup>
+            ))}
+            {SALON_CATEGORIAS.map((cat) => (
+              <optgroup key={cat} label={cat}>
+                {salones.filter((s) => s.category === cat).map((s) => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
+                ))}
+              </optgroup>
+            ))}
+            <option value="__otro__">Otro (especificar)…</option>
+          </select>
+        ) : (
+          <div className="flex gap-2">
+            <input className={inputCls} maxLength={120} value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="Escribe la ubicación" autoFocus />
+            <button onClick={() => setCustomLocation(false)} className="text-xs text-stone-500 shrink-0">Elegir de la lista</button>
+          </div>
+        )}
       </Field>
       <Field label="Descripción del problema">
         <textarea className={inputCls} maxLength={400} rows={2} value={form.issue} onChange={(e) => set("issue", e.target.value)} placeholder="p. ej. aire acondicionado gotea, luz fundida" />
@@ -2301,11 +2592,349 @@ function MaintenanceStats({ tickets }) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Contraseña extra para proteger la descarga de la copia de seguridad      */
+/* ---------------------------------------------------------------------- */
+
+// Nota: esto es una barrera adicional de fricción, no una medida criptográfica
+// fuerte — vive en el código que llega al navegador. Protege bien de un clic
+// accidental o de un dispositivo compartido; no de alguien con conocimientos
+// técnicos que inspeccione el código fuente.
+const BACKUP_DOWNLOAD_PASSWORD = "22Deabril22!";
+
+function BackupPasswordModal({ onClose, onConfirmed }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+
+  const submit = () => {
+    if (value === BACKUP_DOWNLOAD_PASSWORD) onConfirmed();
+    else setError("Contraseña incorrecta.");
+  };
+
+  return (
+    <Modal title="Confirma la contraseña de seguridad" onClose={onClose}>
+      <Field label="Contraseña">
+        <input
+          type="password"
+          className={inputCls}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          autoFocus
+        />
+      </Field>
+      {error && <p className="text-xs text-rose-600 mb-3">{error}</p>}
+      <button onClick={submit} className={`w-full py-2.5 ${primaryBtn}`}>Confirmar y descargar</button>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Personal — directorio y restablecimiento de contraseña                   */
+/* ---------------------------------------------------------------------- */
+
+function StaffPanel({ adminEmail }) {
+  const [staff, setStaff] = useState(null);
+  const [attendance, setAttendance] = useState(null);
+  const [resetTarget, setResetTarget] = useState(null); // {id, email} | null
+
+  const load = useCallback(() => {
+    fetchStaffDirectory().then(setStaff);
+    fetchDailyLogins(todayStr()).then(setAttendance);
+  }, []);
+
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 30000);
+    return () => clearInterval(iv);
+  }, [load]);
+
+  const attendanceByEmail = Object.fromEntries((attendance || []).map((a) => [a.user_email, a]));
+  const presentCount = staff ? staff.filter((s) => attendanceByEmail[s.email]).length : 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-2xl border border-stone-200 p-4">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold text-stone-700">Asistencia de hoy</h3>
+          <span className="text-xs text-stone-400">{new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</span>
+        </div>
+        <p className="text-xs text-stone-500 mb-1">
+          {staff ? `${presentCount} de ${staff.length} personas ya abrieron la app hoy` : "Cargando…"}
+        </p>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-stone-700">Personal</h3>
+          <button onClick={load} className="text-xs text-[#6d5c42] font-medium flex items-center gap-1">
+            <RefreshCw size={12} /> Actualizar
+          </button>
+        </div>
+        {staff === null ? (
+          <p className="text-sm text-stone-400 italic">Cargando…</p>
+        ) : staff.length === 0 ? (
+          <p className="text-sm text-stone-400 italic">No se encontró personal (o tu cuenta no tiene permiso para verlo).</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-stone-400 border-b border-stone-100">
+                  <th className="py-1.5 pr-3 font-medium">Email</th>
+                  <th className="py-1.5 pr-3 font-medium">Rol</th>
+                  <th className="py-1.5 pr-3 font-medium">Hoy</th>
+                  <th className="py-1.5 pr-3 font-medium">Contraseña</th>
+                  <th className="py-1.5 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {staff.map((s) => {
+                  const seen = attendanceByEmail[s.email];
+                  return (
+                    <tr key={s.id} className="border-b border-stone-50">
+                      <td className="py-1.5 pr-3 text-stone-700">{s.email}</td>
+                      <td className="py-1.5 pr-3"><Badge tone="slate">{ROLES[s.role]?.label || s.role}</Badge></td>
+                      <td className="py-1.5 pr-3">
+                        {seen ? (
+                          <Badge tone="green">Entró {new Date(seen.first_seen_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</Badge>
+                        ) : (
+                          <Badge tone="red">Todavía no</Badge>
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        {s.must_change_password ? <Badge tone="yellow">Pendiente de crear</Badge> : <Badge tone="green">Personalizada</Badge>}
+                      </td>
+                      <td className="py-1.5">
+                        <button onClick={() => setResetTarget({ id: s.id, email: s.email })} className="text-[#6d5c42] font-medium">
+                          Restablecer
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+      {resetTarget && (
+        <ResetPasswordModal target={resetTarget} onClose={() => setResetTarget(null)} onDone={load} />
+      )}
+      </div>
+    </div>
+  );
+}
+
+function ResetPasswordModal({ target, onClose, onDone }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    setError("");
+    if (newPassword.length < 8) { setError("Mínimo 8 caracteres."); return; }
+    setLoading(true);
+    try {
+      await adminResetPassword(target.id, newPassword);
+      setDone(true);
+      onDone();
+    } catch (e) {
+      setError(e.message || "Error al restablecer la contraseña");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <Modal title={`Restablecer contraseña — ${target.email}`} onClose={onClose}>
+      {done ? (
+        <div>
+          <p className="text-sm text-stone-600 mb-2">Contraseña actualizada. Comunícasela a la persona por un canal seguro (no por email, ya que el envío de correos no está configurado).</p>
+          <div className="bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm font-mono mb-3">{newPassword}</div>
+          <p className="text-xs text-stone-400 mb-4">Se le pedirá crear su propia contraseña en cuanto inicie sesión con esta.</p>
+          <button onClick={onClose} className={`w-full py-2.5 ${primaryBtn}`}>Cerrar</button>
+        </div>
+      ) : (
+        <div>
+          <Field label="Nueva contraseña temporal">
+            <input className={inputCls} type="text" maxLength={60} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Mínimo 8 caracteres" />
+          </Field>
+          {error && <p className="text-xs text-rose-600 mb-3">{error}</p>}
+          <button onClick={submit} disabled={loading} className={`w-full py-2.5 ${primaryBtn} disabled:opacity-60`}>
+            {loading ? "Restableciendo…" : "Restablecer contraseña"}
+          </button>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Finanzas — ingresos, gastos y sostenibilidad económica                   */
+/* ---------------------------------------------------------------------- */
+
+const EXPENSE_CATEGORIES = [
+  "Mercadería / Insumos", "Personal extra", "Mantenimiento y reparaciones",
+  "Suministros (luz, agua, gas)", "Marketing", "Otros",
+];
+
+// Suma lo cobrado antes + al finalizar, para reservas de hospedaje o restaurante
+function paidTotal(record) {
+  return (Number(record.amountPaidBefore) || 0) + (Number(record.amountPaidAfter) || 0);
+}
+
+function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+
+  const months = lastNMonths(6);
+
+  const incomeByMonth = months.map((mKey) => {
+    const stayIncome = stays
+      .filter((s) => s.status !== "Cancelada" && s.checkIn && s.checkIn.startsWith(mKey))
+      .reduce((sum, s) => sum + paidTotal(s), 0);
+    const restaurantIncome = bookings
+      .filter((b) => b.date && b.date.startsWith(mKey))
+      .reduce((sum, b) => sum + paidTotal(b), 0);
+    const expenseTotal = expenses
+      .filter((e) => e.date && e.date.startsWith(mKey))
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    return {
+      month: monthLabelOf(mKey),
+      Hospedaje: Math.round(stayIncome * 100) / 100,
+      Restaurante: Math.round(restaurantIncome * 100) / 100,
+      Gastos: Math.round(expenseTotal * 100) / 100,
+      Neto: Math.round((stayIncome + restaurantIncome - expenseTotal) * 100) / 100,
+    };
+  });
+
+  const totalStayIncome = stays.filter((s) => s.status !== "Cancelada").reduce((sum, s) => sum + paidTotal(s), 0);
+  const totalRestaurantIncome = bookings.reduce((sum, b) => sum + paidTotal(b), 0);
+  const totalIncome = totalStayIncome + totalRestaurantIncome;
+  const totalExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const netTotal = totalIncome - totalExpenses;
+  const thisMonth = incomeByMonth[incomeByMonth.length - 1];
+
+  const expenseByCategory = {};
+  EXPENSE_CATEGORIES.forEach((c) => (expenseByCategory[c] = 0));
+  expenses.forEach((e) => { expenseByCategory[e.category] = (expenseByCategory[e.category] || 0) + (Number(e.amount) || 0); });
+  const expenseCategoryData = EXPENSE_CATEGORIES.map((c) => ({ categoria: c, gasto: Math.round(expenseByCategory[c] * 100) / 100 })).filter((d) => d.gasto > 0);
+
+  const addExpense = async (expense) => {
+    await persistExpenses([{ ...expense, id: uid(), registeredBy: email }, ...expenses]);
+    setShowExpenseForm(false);
+  };
+  const removeExpense = async (id) => { await persistExpenses(expenses.filter((e) => e.id !== id)); };
+
+  const recentExpenses = [...expenses].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 10);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatTile icon={TrendingUp} label="Ingresos este mes" value={`${(thisMonth?.Hospedaje + thisMonth?.Restaurante || 0).toFixed(2)} €`} />
+        <StatTile icon={BarChart3} label="Gastos este mes" value={`${(thisMonth?.Gastos || 0).toFixed(2)} €`} />
+        <StatTile icon={Award} label="Balance neto (histórico)" value={`${netTotal.toFixed(2)} €`} />
+        <StatTile icon={Timer} label="Ingresos totales registrados" value={`${totalIncome.toFixed(2)} €`} />
+      </div>
+
+      <ChartCard title="Ingresos, gastos y balance neto — últimos 6 meses" height={240}>
+        <BarChart data={incomeByMonth}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} />
+          <Tooltip formatter={(v) => `${v} €`} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Bar dataKey="Hospedaje" stackId="ingresos" fill={CHART_GREEN} radius={[0, 0, 0, 0]} />
+          <Bar dataKey="Restaurante" stackId="ingresos" fill={CHART_BLUE} radius={[4, 4, 0, 0]} />
+          <Line type="monotone" dataKey="Neto" stroke={CHART_GOLD_DARK} strokeWidth={2} dot={{ r: 3 }} />
+        </BarChart>
+      </ChartCard>
+
+      {expenseCategoryData.length > 0 && (
+        <ChartCard title="Gastos por categoría" height={200}>
+          <BarChart data={expenseCategoryData} layout="vertical" margin={{ left: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+            <XAxis type="number" tick={{ fontSize: 11 }} />
+            <YAxis type="category" dataKey="categoria" tick={{ fontSize: 10 }} width={140} />
+            <Tooltip formatter={(v) => `${v} €`} />
+            <Bar dataKey="gasto" fill={CHART_ROSE} radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ChartCard>
+      )}
+
+      <div className="bg-white rounded-2xl border border-stone-200 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold text-stone-700">Gastos registrados (mercadería, personal extra, etc.)</h4>
+          <button onClick={() => setShowExpenseForm(true)} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 ${primaryBtn}`}>
+            <Plus size={13} /> Nuevo gasto
+          </button>
+        </div>
+        {recentExpenses.length === 0 ? (
+          <p className="text-sm text-stone-400 italic">Todavía no hay gastos registrados.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-stone-400 border-b border-stone-100">
+                  <th className="py-1.5 pr-3 font-medium">Fecha</th>
+                  <th className="py-1.5 pr-3 font-medium">Categoría</th>
+                  <th className="py-1.5 pr-3 font-medium">Descripción</th>
+                  <th className="py-1.5 pr-3 font-medium">Importe</th>
+                  <th className="py-1.5 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentExpenses.map((e) => (
+                  <tr key={e.id} className="border-b border-stone-50">
+                    <td className="py-1.5 pr-3 text-stone-400 whitespace-nowrap">{e.date}</td>
+                    <td className="py-1.5 pr-3"><Badge tone="slate">{e.category}</Badge></td>
+                    <td className="py-1.5 pr-3 text-stone-600">{e.description}</td>
+                    <td className="py-1.5 pr-3 text-stone-800 font-medium whitespace-nowrap">{Number(e.amount).toFixed(2)} €</td>
+                    <td className="py-1.5"><button onClick={() => removeExpense(e.id)} className="text-rose-600 font-medium">Eliminar</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {showExpenseForm && <ExpenseModal onClose={() => setShowExpenseForm(false)} onSave={addExpense} />}
+    </div>
+  );
+}
+
+function ExpenseModal({ onClose, onSave }) {
+  const [form, setForm] = useState({ date: todayStr(), category: EXPENSE_CATEGORIES[0], description: "", amount: 0 });
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <Modal title="Nuevo gasto" onClose={onClose}>
+      <Field label="Fecha">
+        <input type="date" className={inputCls} value={form.date} onChange={(e) => set("date", e.target.value)} />
+      </Field>
+      <Field label="Categoría">
+        <select className={inputCls} value={form.category} onChange={(e) => set("category", e.target.value)}>
+          {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </Field>
+      <Field label="Descripción">
+        <input className={inputCls} maxLength={200} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="p. ej. Compra de vino, refuerzo de camareros boda García" />
+      </Field>
+      <Field label="Importe (€)">
+        <input type="number" min="0" step="0.01" className={inputCls} value={form.amount} onChange={(e) => set("amount", Number(e.target.value))} />
+      </Field>
+      <button onClick={() => form.description && form.amount > 0 && onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Guardar gasto</button>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* Administrador — auditoría, apertura/cierre del hotel y estadísticas      */
 /* ---------------------------------------------------------------------- */
 
 const ADMIN_SUBTABS = [
   { key: "resumen", label: "Estado del hotel" },
+  { key: "personal", label: "Personal" },
+  { key: "finanzas", label: "Finanzas" },
   { key: "hospedaje", label: "Hospedaje" },
   { key: "restaurante", label: "Restaurante" },
   { key: "limpieza", label: "Limpieza" },
@@ -2313,10 +2942,12 @@ const ADMIN_SUBTABS = [
   { key: "actividad", label: "Actividad" },
 ];
 
-function AdminModule({ rooms, stays, bookings, tickets, persistStays, hotelStatus, persistHotelStatus, email }) {
+function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpenses, persistStays, hotelStatus, persistHotelStatus, email }) {
   const [log, setLog] = useState(null);
   const [confirming, setConfirming] = useState(null); // "close" | "open" | null
   const [subtab, setSubtab] = useState("resumen");
+  const [backupState, setBackupState] = useState("idle"); // idle | working | done | error
+  const [showBackupAuth, setShowBackupAuth] = useState(false);
 
   const loadLog = useCallback(() => {
     fetchAuditLog(200).then(setLog);
@@ -2327,6 +2958,27 @@ function AdminModule({ rooms, stays, bookings, tickets, persistStays, hotelStatu
     const iv = setInterval(loadLog, 5000);
     return () => clearInterval(iv);
   }, [loadLog]);
+
+  const downloadBackup = async () => {
+    setBackupState("working");
+    try {
+      const backup = await fetchFullBackup();
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `masboronat-backup-${todayStr()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setBackupState("done");
+      logAction({ email, role: "admin", module: "Sistema", action: "Descargó una copia de seguridad" });
+    } catch (e) {
+      console.error(e);
+      setBackupState("error");
+    }
+  };
 
   const activeStaysCount = stays.filter((s) => s.status !== "Cancelada" && stayTiming(s) !== "Finalizada").length;
 
@@ -2390,6 +3042,33 @@ function AdminModule({ rooms, stays, bookings, tickets, persistStays, hotelStatu
           </div>
         </div>
       )}
+
+      {subtab === "resumen" && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-4 mb-4">
+          <h3 className="font-semibold text-stone-700 mb-2">Copia de seguridad</h3>
+          <p className="text-xs text-stone-500 mb-3">
+            Descarga un archivo con todos los datos de la app (alojamientos, reservas, tickets, eventos y el registro de actividad) tal como están ahora mismo. Guárdalo en un sitio seguro — es tu red de protección si algo se borra por error.
+          </p>
+          <button
+            onClick={() => setShowBackupAuth(true)}
+            disabled={backupState === "working"}
+            className={`text-xs font-medium px-3 py-2 rounded-lg ${primaryBtn} disabled:opacity-60`}
+          >
+            {backupState === "working" ? "Preparando…" : "Descargar copia de seguridad"}
+          </button>
+          {backupState === "done" && <span className="ml-2 text-xs text-emerald-700">Descargada ✓</span>}
+          {backupState === "error" && <span className="ml-2 text-xs text-rose-600">Hubo un error, inténtalo de nuevo</span>}
+          {showBackupAuth && (
+            <BackupPasswordModal
+              onClose={() => setShowBackupAuth(false)}
+              onConfirmed={() => { setShowBackupAuth(false); downloadBackup(); }}
+            />
+          )}
+        </div>
+      )}
+
+      {subtab === "personal" && <StaffPanel adminEmail={email} />}
+      {subtab === "finanzas" && <FinanceModule stays={stays} bookings={bookings} expenses={expenses} persistExpenses={persistExpenses} email={email} />}
 
       {subtab === "hospedaje" && <OccupancyStats rooms={rooms} stays={stays} />}
       {subtab === "restaurante" && <RestaurantStats bookings={bookings} />}
@@ -2456,4 +3135,3 @@ function AdminModule({ rooms, stays, bookings, tickets, persistStays, hotelStatu
     </div>
   );
 }
-
