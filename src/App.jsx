@@ -13,6 +13,7 @@ import {
 import { loadShared, saveShared, supabase, getProfile, logAction, fetchAuditLog, fetchFullBackup, fetchStaffDirectory, adminResetPassword, recordDailyLogin, fetchDailyLogins } from "./supabaseClient";
 import Login from "./Login";
 import SetPassword from "./SetPassword";
+import { useTranslation, LANGUAGES } from "./i18n.jsx";
 
 /* ---------------------------------------------------------------------- */
 /* Identidad Mas Boronat — masía del s. XVII, Salomó (Tarragona)          */
@@ -582,7 +583,7 @@ export default function MasBoronatOps() {
 
   return (
     <div className="min-h-screen bg-stone-50 font-sans">
-      <TopBar roleLabel={cfg.label} email={session.user.email} lastSync={lastSync} syncing={syncing} onRefresh={() => refreshAll(false)} />
+      <TopBar role={role} email={session.user.email} lastSync={lastSync} syncing={syncing} onRefresh={() => refreshAll(false)} />
       <TabNav tabs={cfg.tabs} tab={tab} setTab={setTab} />
 
       {connectionIssue && (
@@ -622,7 +623,9 @@ export default function MasBoronatOps() {
 /* Barra superior y navegación                                             */
 /* ---------------------------------------------------------------------- */
 
-function TopBar({ roleLabel, email, lastSync, syncing, onRefresh }) {
+function TopBar({ role, email, lastSync, syncing, onRefresh }) {
+  const { t, lang, setLang } = useTranslation();
+  const roleLabel = t(`role_${role}`);
   return (
     <header className="bg-[#332b1f] text-white sticky top-0 z-30 shadow-sm">
       <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between gap-3">
@@ -632,11 +635,22 @@ function TopBar({ roleLabel, email, lastSync, syncing, onRefresh }) {
           </div>
           <div className="min-w-0">
             <h1 className="font-semibold leading-tight text-sm sm:text-base truncate tracking-wide">Mas Boronat</h1>
-            <p className="text-[#c4baab] text-[11px] leading-tight hidden sm:block">Masía s. XVII · Salomó, Tarragona — Gestión operativa</p>
+            <p className="text-[#c4baab] text-[11px] leading-tight hidden sm:block">{t("tagline")}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={onRefresh} className="p-2 rounded-full hover:bg-[#463b2a] text-[#c4baab]" title="Actualizar ahora">
+          <div className="hidden sm:flex items-center gap-0.5 mr-1" title={t("language")}>
+            {LANGUAGES.map((l) => (
+              <button
+                key={l.code}
+                onClick={() => setLang(l.code)}
+                className={`text-sm px-1.5 py-1 rounded-md ${lang === l.code ? "bg-[#463b2a]" : "opacity-50 hover:opacity-100"}`}
+              >
+                {l.flag}
+              </button>
+            ))}
+          </div>
+          <button onClick={onRefresh} className="p-2 rounded-full hover:bg-[#463b2a] text-[#c4baab]" title={t("refresh")}>
             <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
           </button>
           <div className="text-right hidden sm:block">
@@ -647,42 +661,54 @@ function TopBar({ roleLabel, email, lastSync, syncing, onRefresh }) {
             onClick={() => supabase.auth.signOut()}
             className="bg-[#463b2a] hover:bg-[#584a35] text-white text-xs font-medium rounded-lg px-3 py-2"
           >
-            Cerrar sesión
+            {t("logout")}
           </button>
         </div>
       </div>
-      <div className="max-w-6xl mx-auto px-3 sm:px-6 pb-1.5 -mt-1 text-[10px] text-[#c4baab] flex items-center gap-1.5 sm:hidden">
-        <span>{roleLabel} · {email}</span>
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 pb-1.5 flex items-center justify-between gap-1.5 sm:hidden">
+        <span className="text-[10px] text-[#c4baab]">{roleLabel} · {email}</span>
+        <div className="flex items-center gap-0.5">
+          {LANGUAGES.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => setLang(l.code)}
+              className={`text-xs px-1 py-0.5 rounded ${lang === l.code ? "bg-[#463b2a]" : "opacity-50"}`}
+            >
+              {l.flag}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="max-w-6xl mx-auto px-3 sm:px-6 pb-1.5 -mt-1 text-[10px] text-[#c4baab] flex items-center gap-1.5">
         <span className="relative flex w-1.5 h-1.5">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ab9574] opacity-75" />
           <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#ab9574]" />
         </span>
-        En vivo{lastSync ? ` · última actualización ${lastSync.toLocaleTimeString()}` : ""}
+        {t("live")}{lastSync ? ` · ${t("lastUpdate")} ${lastSync.toLocaleTimeString()}` : ""}
       </div>
     </header>
   );
 }
 
 function TabNav({ tabs, tab, setTab }) {
+  const { t } = useTranslation();
   return (
     <nav className="bg-white border-b border-stone-200 sticky top-[57px] sm:top-[61px] z-20 overflow-x-auto">
       <div className="max-w-6xl mx-auto px-2 sm:px-4 flex gap-0.5">
-        {tabs.map((t) => {
-          const meta = TAB_META[t];
+        {tabs.map((tabKey) => {
+          const meta = TAB_META[tabKey];
           const Icon = meta.icon;
-          const active = tab === t;
+          const active = tab === tabKey;
           return (
             <button
-              key={t}
-              onClick={() => setTab(t)}
+              key={tabKey}
+              onClick={() => setTab(tabKey)}
               className={`flex items-center gap-1 px-2 sm:px-2.5 py-2.5 text-[11px] sm:text-xs font-medium border-b-2 whitespace-nowrap transition-colors shrink-0 ${
                 active ? "border-[#ab9574] text-[#6d5c42]" : "border-transparent text-stone-500 hover:text-stone-700"
               }`}
             >
               <Icon size={14} />
-              {meta.navLabel}
+              {t(`tab_${tabKey}`)}
             </button>
           );
         })}
@@ -696,24 +722,25 @@ function TabNav({ tabs, tab, setTab }) {
 /* ---------------------------------------------------------------------- */
 
 function Dashboard({ rooms, stays, bookings, tickets, events, setTab }) {
-  const t = todayStr();
-  const staysToday = stays.filter((s) => s.status !== "Cancelada" && s.checkIn <= t && t <= s.checkOut);
+  const { t } = useTranslation();
+  const today = todayStr();
+  const staysToday = stays.filter((s) => s.status !== "Cancelada" && s.checkIn <= today && today <= s.checkOut);
   const unidadesOcupadas = new Set(staysToday.map((s) => s.roomId)).size;
   const personasAlojadas = staysToday.reduce((sum, s) => sum + (Number(s.numGuests) || 0), 0);
   const sucias = rooms.filter((r) => r.cleaningStatus === "Sucia").length;
   const inspeccion = rooms.filter((r) => r.cleaningStatus === "Inspección Necesaria").length;
   const ticketsAbiertos = tickets.filter((tk) => tk.status !== "Resuelto").length;
   const ticketsAltos = tickets.filter((tk) => tk.status !== "Resuelto" && tk.priority === "Alta").length;
-  const reservasHoy = bookings.filter((b) => b.date === t).length;
-  const eventosHoy = events.filter((e) => e.date === t && e.status !== "Cancelado").length;
+  const reservasHoy = bookings.filter((b) => b.date === today).length;
+  const eventosHoy = events.filter((e) => e.date === today && e.status !== "Cancelado").length;
 
   const cards = [
-    { label: "Unidades ocupadas hoy", value: `${unidadesOcupadas}/${rooms.length}`, tone: "green", icon: BedDouble, onClick: () => setTab("guests") },
-    { label: "Ocupación total (personas)", value: `${personasAlojadas}/${TOTAL_CAPACITY}`, tone: "blue", icon: Users, onClick: () => setTab("guests") },
-    { label: "Unidades por limpiar", value: sucias + inspeccion, tone: sucias + inspeccion > 0 ? "yellow" : "green", icon: Sparkles, onClick: () => setTab("housekeeping") },
-    { label: "Reservas de hoy en restaurante", value: reservasHoy, tone: "blue", icon: UtensilsCrossed, onClick: () => setTab("restaurant") },
-    { label: "Tickets de mantenimiento abiertos", value: ticketsAbiertos, tone: ticketsAltos > 0 ? "red" : "slate", icon: Wrench, onClick: () => setTab("maintenance") },
-    { label: "Eventos de hoy", value: eventosHoy, tone: "purple", icon: CalendarDays, onClick: () => setTab("events") },
+    { label: t("dash_units_occupied"), value: `${unidadesOcupadas}/${rooms.length}`, tone: "green", icon: BedDouble, onClick: () => setTab("guests") },
+    { label: t("dash_occupancy_people"), value: `${personasAlojadas}/${TOTAL_CAPACITY}`, tone: "blue", icon: Users, onClick: () => setTab("guests") },
+    { label: t("dash_units_to_clean"), value: sucias + inspeccion, tone: sucias + inspeccion > 0 ? "yellow" : "green", icon: Sparkles, onClick: () => setTab("housekeeping") },
+    { label: t("dash_restaurant_today"), value: reservasHoy, tone: "blue", icon: UtensilsCrossed, onClick: () => setTab("restaurant") },
+    { label: t("dash_open_tickets"), value: ticketsAbiertos, tone: ticketsAltos > 0 ? "red" : "slate", icon: Wrench, onClick: () => setTab("maintenance") },
+    { label: t("dash_events_today"), value: eventosHoy, tone: "purple", icon: CalendarDays, onClick: () => setTab("events") },
   ];
 
   return (
@@ -733,9 +760,9 @@ function Dashboard({ rooms, stays, bookings, tickets, events, setTab }) {
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="bg-white rounded-2xl border border-stone-200 p-4">
-          <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2"><AlertTriangle size={16} className="text-rose-500" /> Mantenimiento de alta prioridad</h3>
+          <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2"><AlertTriangle size={16} className="text-rose-500" /> {t("dash_high_priority")}</h3>
           {tickets.filter((tk) => tk.priority === "Alta" && tk.status !== "Resuelto").length === 0 ? (
-            <p className="text-sm text-stone-400">Nada urgente por ahora.</p>
+            <p className="text-sm text-stone-400">{t("dash_nothing_urgent")}</p>
           ) : (
             <ul className="space-y-2">
               {tickets.filter((tk) => tk.priority === "Alta" && tk.status !== "Resuelto").map((tk) => (
@@ -748,12 +775,12 @@ function Dashboard({ rooms, stays, bookings, tickets, events, setTab }) {
           )}
         </div>
         <div className="bg-white rounded-2xl border border-stone-200 p-4">
-          <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2"><CalendarDays size={16} className="text-violet-500" /> Próximos eventos</h3>
-          {events.filter((e) => e.date >= t && e.status !== "Cancelado").length === 0 ? (
-            <p className="text-sm text-stone-400">No hay eventos próximos.</p>
+          <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2"><CalendarDays size={16} className="text-violet-500" /> {t("dash_upcoming_events")}</h3>
+          {events.filter((e) => e.date >= today && e.status !== "Cancelado").length === 0 ? (
+            <p className="text-sm text-stone-400">{t("dash_no_upcoming")}</p>
           ) : (
             <ul className="space-y-2">
-              {events.filter((e) => e.date >= t && e.status !== "Cancelado").sort((a,b)=>a.date.localeCompare(b.date)).slice(0,6).map((e) => (
+              {events.filter((e) => e.date >= today && e.status !== "Cancelado").sort((a,b)=>a.date.localeCompare(b.date)).slice(0,6).map((e) => (
                 <li key={e.id} className="text-sm flex items-center justify-between">
                   <span className="text-stone-700">{e.title} · {e.date}</span>
                   <Badge tone="slate">{e.space}</Badge>
@@ -3032,17 +3059,18 @@ function ExpenseModal({ onClose, onSave }) {
 /* ---------------------------------------------------------------------- */
 
 const ADMIN_SUBTABS = [
-  { key: "resumen", label: "Estado del hotel" },
-  { key: "personal", label: "Personal" },
-  { key: "finanzas", label: "Finanzas" },
-  { key: "hospedaje", label: "Hospedaje" },
-  { key: "restaurante", label: "Restaurante" },
-  { key: "limpieza", label: "Limpieza" },
-  { key: "mantenimiento", label: "Mantenimiento" },
-  { key: "actividad", label: "Actividad" },
+  { key: "resumen", label: "admintab_resumen" },
+  { key: "personal", label: "admintab_personal" },
+  { key: "finanzas", label: "admintab_finanzas" },
+  { key: "hospedaje", label: "admintab_hospedaje" },
+  { key: "restaurante", label: "admintab_restaurante" },
+  { key: "limpieza", label: "admintab_limpieza" },
+  { key: "mantenimiento", label: "admintab_mantenimiento" },
+  { key: "actividad", label: "admintab_actividad" },
 ];
 
 function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpenses, persistStays, hotelStatus, persistHotelStatus, email }) {
+  const { t } = useTranslation();
   const [log, setLog] = useState(null);
   const [confirming, setConfirming] = useState(null); // "close" | "open" | null
   const [subtab, setSubtab] = useState("resumen");
@@ -3098,8 +3126,8 @@ function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpense
 
   return (
     <div>
-      <h2 className="text-lg font-semibold text-stone-800 mb-1">Panel de Administrador</h2>
-      <p className="text-xs text-stone-400 mb-4">Visible solo para tu cuenta. Aquí ves la actividad de todo el personal, las estadísticas del negocio, y controlas el estado general del hotel.</p>
+      <h2 className="text-lg font-semibold text-stone-800 mb-1">{t("admin_panel_title")}</h2>
+      <p className="text-xs text-stone-400 mb-4">{t("admin_panel_subtitle")}</p>
 
       <div className="flex gap-1 mb-4 overflow-x-auto border-b border-stone-200">
         {ADMIN_SUBTABS.map((s) => (
@@ -3110,17 +3138,17 @@ function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpense
               subtab === s.key ? "border-[#ab9574] text-[#6d5c42]" : "border-transparent text-stone-500 hover:text-stone-700"
             }`}
           >
-            {s.label}
+            {t(s.label)}
           </button>
         ))}
       </div>
 
       {subtab === "resumen" && (
         <div className="bg-white rounded-2xl border border-stone-200 p-4 mb-4">
-          <h3 className="font-semibold text-stone-700 mb-3">Estado del hotel</h3>
+          <h3 className="font-semibold text-stone-700 mb-3">{t("hotel_status_title")}</h3>
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <Badge tone={hotelStatus.closed ? "red" : "green"}>{hotelStatus.closed ? "Cerrado" : "Abierto"}</Badge>
+              <Badge tone={hotelStatus.closed ? "red" : "green"}>{hotelStatus.closed ? t("hotel_closed") : t("hotel_open")}</Badge>
               {hotelStatus.closed && hotelStatus.closedAt && (
                 <p className="text-xs text-stone-400 mt-1">Cerrado el {new Date(hotelStatus.closedAt).toLocaleString()} por {hotelStatus.closedBy}</p>
               )}
@@ -3131,11 +3159,11 @@ function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpense
             <div className="flex gap-2">
               {!hotelStatus.closed ? (
                 <button onClick={() => setConfirming("close")} className="text-xs font-medium px-3 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white">
-                  Cerrar el hotel
+                  {t("close_hotel_btn")}
                 </button>
               ) : (
                 <button onClick={() => setConfirming("open")} className={`text-xs font-medium px-3 py-2 rounded-lg ${primaryBtn}`}>
-                  Abrir el hotel
+                  {t("open_hotel_btn")}
                 </button>
               )}
             </div>
@@ -3145,16 +3173,16 @@ function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpense
 
       {subtab === "resumen" && (
         <div className="bg-white rounded-2xl border border-stone-200 p-4 mb-4">
-          <h3 className="font-semibold text-stone-700 mb-2">Copia de seguridad</h3>
+          <h3 className="font-semibold text-stone-700 mb-2">{t("backup_title")}</h3>
           <p className="text-xs text-stone-500 mb-3">
-            Descarga un archivo con todos los datos de la app (alojamientos, reservas, tickets, eventos y el registro de actividad) tal como están ahora mismo. Guárdalo en un sitio seguro — es tu red de protección si algo se borra por error.
+            {t("backup_desc")}
           </p>
           <button
             onClick={() => setShowBackupAuth(true)}
             disabled={backupState === "working"}
             className={`text-xs font-medium px-3 py-2 rounded-lg ${primaryBtn} disabled:opacity-60`}
           >
-            {backupState === "working" ? "Preparando…" : "Descargar copia de seguridad"}
+            {backupState === "working" ? "Preparando…" : t("backup_button")}
           </button>
           {backupState === "done" && <span className="ml-2 text-xs text-emerald-700">Descargada ✓</span>}
           {backupState === "error" && <span className="ml-2 text-xs text-rose-600">Hubo un error, inténtalo de nuevo</span>}
@@ -3212,7 +3240,7 @@ function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpense
       )}
 
       {confirming === "close" && (
-        <Modal title="Cerrar el hotel" onClose={() => setConfirming(null)}>
+        <Modal title={t("close_hotel_btn")} onClose={() => setConfirming(null)}>
           <p className="text-sm text-stone-600 mb-3">
             Esto cancelará automáticamente las <strong>{activeStaysCount}</strong> reservas de alojamiento actuales o futuras que no estén ya canceladas, y bloqueará la creación de nuevas reservas de hospedaje y restaurante para el resto del personal hasta que vuelvas a abrir el hotel.
           </p>
@@ -3224,7 +3252,7 @@ function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpense
         </Modal>
       )}
       {confirming === "open" && (
-        <Modal title="Abrir el hotel" onClose={() => setConfirming(null)}>
+        <Modal title={t("open_hotel_btn")} onClose={() => setConfirming(null)}>
           <p className="text-sm text-stone-600 mb-4">Esto permitirá de nuevo crear reservas de alojamiento y restaurante para todo el personal.</p>
           <div className="flex gap-2">
             <button onClick={openHotel} className={`flex-1 py-2.5 rounded-xl text-sm font-medium ${primaryBtn}`}>Sí, abrir el hotel</button>

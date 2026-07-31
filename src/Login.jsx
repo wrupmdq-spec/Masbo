@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { signIn } from "./supabaseClient";
+import { useTranslation, LANGUAGES } from "./i18n.jsx";
 
 export default function Login() {
+  const { t, lang, setLang } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -17,7 +19,7 @@ export default function Login() {
     if (error) {
       setError(
         error.message === "Invalid login credentials"
-          ? "Email o contraseña incorrectos."
+          ? t("login_error_invalid")
           : error.message
       );
     }
@@ -27,17 +29,30 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-stone-50 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
+        <div className="flex justify-center gap-1 mb-4">
+          {LANGUAGES.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => setLang(l.code)}
+              className={`text-xs px-2 py-1 rounded-md border ${lang === l.code ? "border-[#ab9574] bg-[#ab9574]/10" : "border-transparent"}`}
+              title={l.label}
+            >
+              {l.flag}
+            </button>
+          ))}
+        </div>
+
         <div className="flex flex-col items-center mb-6">
           <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center mb-3 border border-[#ab9574]/40 p-2 shadow-sm">
             <img src="/logo-gold.svg" alt="Mas Boronat" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-lg font-semibold text-stone-800 tracking-wide">Mas Boronat</h1>
-          <p className="text-xs text-stone-400">Masía s. XVII · Salomó, Tarragona</p>
+          <p className="text-xs text-stone-400">{t("tagline")}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white border border-stone-200 rounded-2xl p-6">
           <label className="block mb-3">
-            <span className="block text-xs font-medium text-stone-500 mb-1">Email</span>
+            <span className="block text-xs font-medium text-stone-500 mb-1">{t("login_email")}</span>
             <input
               type="email"
               required
@@ -49,7 +64,7 @@ export default function Login() {
             />
           </label>
           <label className="block mb-4">
-            <span className="block text-xs font-medium text-stone-500 mb-1">Contraseña</span>
+            <span className="block text-xs font-medium text-stone-500 mb-1">{t("login_password")}</span>
             <input
               type="password"
               required
@@ -73,15 +88,14 @@ export default function Login() {
             className="w-full bg-[#806c4d] hover:bg-[#6d5c42] disabled:opacity-60 text-white font-medium rounded-xl text-sm py-2.5 flex items-center justify-center gap-2"
           >
             {loading && <RefreshCw size={14} className="animate-spin" />}
-            {loading ? "Entrando…" : "Iniciar sesión"}
+            {loading ? t("login_loading") : t("login_button")}
           </button>
         </form>
 
         <p className="text-center text-xs text-stone-400 mt-4">
-          ¿No tienes cuenta? Pídesela al administrador — las cuentas del personal se crean manualmente.
+          {t("login_no_account")}
         </p>
       </div>
     </div>
   );
 }
-
