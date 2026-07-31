@@ -109,3 +109,84 @@ export async function fetchAuditLog(limit = 200) {
   }
 }
 
+/* ---------------------------------------------------------------------- */
+/* Copia de seguridad manual (exporta todo a un archivo descargable)        */
+/* ---------------------------------------------------------------------- */
+
+export async function fetchFullBackup() {
+  const [kvRes, logRes] = await Promise.all([
+    supabase.from("hotelops_kv").select("*"),
+    supabase.from("audit_log").select("*").order("created_at", { ascending: false }),
+  ]);
+  if (kvRes.error) throw kvRes.error;
+  if (logRes.error) throw logRes.error;
+  return {
+    exportedAt: new Date().toISOString(),
+    data: kvRes.data,
+    auditLog: logRes.data,
+  };
+}
+
+/* ---------------------------------------------------------------------- */
+/* Directorio de personal y restablecimiento de contraseña (solo admin)     */
+/* ---------------------------------------------------------------------- */
+
+export async function fetchStaffDirectory() {
+  try {
+    const { data, error } = await supabase.rpc("get_staff_directory");
+    if (error) {
+      console.error("Error al leer el directorio de personal", error);
+      return [];
+    }
+    return data || [];
+  } catch (e) {
+    console.error("Error al leer el directorio de personal", e);
+    return [];
+  }
+}
+
+// Llama a la Edge Function "reset-password". Solo funciona si quien está
+// logueado tiene rol admin (la función lo comprueba también en el servidor).
+export async function adminResetPassword(targetUserId, newPassword) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new Error("Sesión no válida");
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/reset-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ targetUserId, newPassword }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || "Error al restablecer la contraseña");
+  return json;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Asistencia diaria (¿quién abrió la app hoy?)                             */
+/* ---------------------------------------------------------------------- */
+
+// Se llama una vez por sesión al entrar. Marca "hoy ya entré" para el usuario logueado.
+export async function recordDailyLogin() {
+  try {
+    const { error } = await supabase.rpc("record_daily_login");
+    if (error) console.error("Error registrando asistencia", error);
+  } catch (e) {
+    console.error("Error registrando asistencia", e);
+  }
+}
+
+// Solo funciona si quien llama es admin (comprobado también en el servidor)
+export async function fetchDailyLogins(dateStr) {
+  try {
+    const { data, error } = await supabase.rpc("get_daily_logins", { target_date: dateStr });
+    if (error) { console.error("Error leyendo asistencia", error); return []; }
+    return data || [];
+  } catch (e) {
+    console.error("Error leyendo asistencia", e);
+    return [];
+  }
+}
