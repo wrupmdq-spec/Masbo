@@ -846,25 +846,17 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("Todos");
+  const [statusFilter, setStatusFilter] = useState("Activas");
+  const [sortBy, setSortBy] = useState("checkIn");
+  const [sortDir, setSortDir] = useState("asc");
   const [newStayFor, setNewStayFor] = useState(null); // roomId
   const [editingStay, setEditingStay] = useState(null); // stay object
+  const [showRoomPicker, setShowRoomPicker] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState(false);
-  const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
 
-  const filtered = rooms.filter((r) => {
-    const matchesType = typeFilter === "Todos" || r.type === typeFilter;
-    if (!matchesType) return false;
-    if (!query) return true;
-    const q = query.toLowerCase();
-    if (unitLabel(r).toLowerCase().includes(q)) return true;
-    return stays.some((s) => s.roomId === r.id && (s.guestName || "").toLowerCase().includes(q));
-  });
-
-  const groups = CATEGORIAS.map((c) => ({ ...c, rooms: filtered.filter((r) => r.type === c.type) })).filter(
-    (g) => g.rooms.length > 0
-  );
+  const roomsById = Object.fromEntries(rooms.map((r) => [r.id, r]));
 
   const upsert = async (stay) => {
     let next;
@@ -875,12 +867,69 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     setEditingStay(null);
   };
   const remove = async (id) => { await persistStays(stays.filter((s) => s.id !== id)); };
-
   const saveGroup = async (newStays) => {
     await persistStays([...stays, ...newStays]);
     setShowGroupModal(false);
   };
 
+  // Edición directa de una celda: guarda al instante, sin abrir ningún formulario
+  const updateField = (stayId, field, value) => {
+    persistStays(stays.map((s) => (s.id === stayId ? { ...s, [field]: value } : s)));
+  };
+
+  // --- Filtro, búsqueda y orden, como en una hoja de cálculo ---
+  const rows = stays
+    .map((s) => ({ ...s, room: roomsById[s.roomId] }))
+    .filter((s) => s.room);
+
+  const filteredRows = rows.filter((s) => {
+    if (typeFilter !== "Todos" && s.room.type !== typeFilter) return false;
+    if (statusFilter !== "Todas") {
+      const timing = s.status === "Cancelada" ? "Cancelada" : stayTiming(s);
+      if (statusFilter !== timing) return false;
+    }
+    if (query) {
+      const q = query.toLowerCase();
+      const matchesGuest = (s.guestName || "").toLowerCase().includes(q);
+      const matchesRoom = unitLabel(s.room).toLowerCase().includes(q);
+      if (!matchesGuest && !matchesRoom) return false;
+    }
+    return true;
+  });
+
+  const sortValue = (s) => {
+    switch (sortBy) {
+      case "room": return unitLabel(s.room);
+      case "guestName": return (s.guestName || "").toLowerCase();
+      case "checkOut": return s.checkOut;
+      case "status": return s.status === "Cancelada" ? "Cancelada" : stayTiming(s);
+      default: return s.checkIn;
+    }
+  };
+  const sortedRows = [...filteredRows].sort((a, b) => {
+    const va = sortValue(a), vb = sortValue(b);
+    const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const toggleSort = (col) => {
+    if (sortBy === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortBy(col); setSortDir("asc"); }
+  };
+
+  const allVisibleSelected = sortedRows.length > 0 && sortedRows.every((s) => selectedIds.has(s.id));
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      if (allVisibleSelected) {
+        const next = new Set(prev);
+        sortedRows.forEach((s) => next.delete(s.id));
+        return next;
+      }
+      const next = new Set(prev);
+      sortedRows.forEach((s) => next.add(s.id));
+      return next;
+    });
+  };
   const toggleSelected = (id) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -889,24 +938,9 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
       return next;
     });
   };
-
-  // Atajo: selecciona automáticamente todas las reservas con el mismo nombre de huésped
-  // (útil para agrupar reservas ya cargadas que nunca pasaron por "Reserva de grupo")
-  const selectSameGuest = (guestName) => {
-    const name = (guestName || "").trim().toLowerCase();
-    if (!name) return;
-    const matches = stays.filter((s) => (s.guestName || "").trim().toLowerCase() === name);
-    setSelectedIds(new Set(matches.map((s) => s.id)));
-    setSelectMode(true);
-  };
-
-  const clearSelection = () => { setSelectedIds(new Set()); setSelectMode(false); };
-
+  const clearSelection = () => setSelectedIds(new Set());
   const selectedStays = stays.filter((s) => selectedIds.has(s.id));
-
   const saveBulkEdit = async (updatedStays) => {
-    // Si no comparten ya un groupId, les asigna uno nuevo para que la próxima vez
-    // aparezcan marcadas como "Grupo" automáticamente.
     const existingGroupId = updatedStays.find((s) => s.groupId)?.groupId;
     const groupId = existingGroupId || uid();
     const withGroup = updatedStays.map((s) => ({ ...s, groupId }));
@@ -916,29 +950,28 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     clearSelection();
   };
 
-  const stayModalRoom = newStayFor ? rooms.find((r) => r.id === newStayFor) : editingStay ? rooms.find((r) => r.id === editingStay.roomId) : null;
+  const SortHeader = ({ col, children, className = "" }) => (
+    <th
+      onClick={() => toggleSort(col)}
+      className={`py-2 px-2 font-semibold text-stone-500 text-left cursor-pointer select-none whitespace-nowrap hover:text-stone-800 ${className}`}
+    >
+      {children} {sortBy === col && (sortDir === "asc" ? "▲" : "▼")}
+    </th>
+  );
 
   return (
-    <div className={selectMode ? "pb-16" : ""}>
+    <div className={selectedIds.size > 0 ? "pb-16" : ""}>
       <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">{t("guests_title")}</h2>
-          <p className="text-xs text-stone-400">{t("guests_subtitle")}</p>
+          <p className="text-xs text-stone-400">{sortedRows.length} de {rows.length} reservas · edita cualquier celda directamente, se guarda sola</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls + " w-auto"}>
-            <option value="Todos">{t("guests_all_types")}</option>
-            {TIPOS_ALOJAMIENTO.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
-          </select>
-          <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("guests_search")}
-              className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#ab9574] w-40 sm:w-56"
-            />
-          </div>
+          {editable && !hotelClosed && (
+            <button onClick={() => setShowRoomPicker(true)} className={`flex items-center gap-1.5 text-xs px-3 py-2 ${primaryBtn}`}>
+              <Plus size={14} /> {t("guests_new_stay")}
+            </button>
+          )}
           {editable && !hotelClosed && (
             <button
               onClick={() => setShowGroupModal(true)}
@@ -947,96 +980,167 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
               <Users size={14} /> {t("guests_group_booking")}
             </button>
           )}
-          {editable && (
-            <button
-              onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
-              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border ${selectMode ? selectedToggle : "border-stone-300 text-stone-600 hover:bg-stone-50"}`}
-            >
-              <CheckSquare size={14} /> {selectMode ? "Cancelar selección" : "Seleccionar varias"}
-            </button>
-          )}
         </div>
       </div>
 
-      {groups.map((g) => (
-        <div key={g.type} className="mb-5">
-          <div className="flex items-center gap-2 mb-2 sticky top-[105px] sm:top-[113px] z-10">
-            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: g.color }} />
-            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: g.color }}>{g.type}</h3>
-            <span className="text-[11px] text-stone-400">({g.rooms.length})</span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-            {g.rooms.map((r) => {
-              const roomStays = stays
-                .filter((s) => s.roomId === r.id)
-                .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
-              const current = roomStays.find((s) => s.status !== "Cancelada" && stayTiming(s) === "En curso");
-
-              return (
-                <div key={r.id} className="bg-white rounded-xl border border-stone-200 p-2.5">
-                  <div className="flex items-center justify-between mb-1.5 gap-1">
-                    <span className="font-semibold text-stone-800 text-sm truncate">{unitLabel(r)}</span>
-                    <Badge tone={current ? "green" : "slate"}>{current ? t("guests_occupied_today") : t("guests_free_today")}</Badge>
-                  </div>
-                  <p className="text-[10px] text-stone-400 mb-1.5">{t("guests_capacity")} {r.capacity} pers.</p>
-
-                  {roomStays.length === 0 ? (
-                    <p className="text-xs text-stone-400 italic mb-1.5">{t("guests_no_stays")}</p>
-                  ) : (
-                    <ul className="space-y-1 mb-1.5 max-h-28 overflow-y-auto pr-0.5">
-                      {roomStays.map((s) => (
-                        <li key={s.id} className={`text-[11px] border rounded-lg px-2 py-1 ${selectedIds.has(s.id) ? "border-[#ab9574] bg-[#ab9574]/10" : "border-stone-100"}`}>
-                          <div className="flex items-center justify-between gap-1">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              {selectMode && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedIds.has(s.id)}
-                                  onChange={() => toggleSelected(s.id)}
-                                  className="shrink-0"
-                                />
-                              )}
-                              <span className="font-medium text-stone-700 truncate">{s.guestName || "Sin nombre"}</span>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              {s.groupId && <Badge tone="purple">Grupo</Badge>}
-                              <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? t("st_Cancelada") : t("st_" + stayTiming(s))}</Badge>
-                            </div>
-                          </div>
-                          <div className="text-stone-400 mt-0.5 truncate">{s.checkIn} → {s.checkOut}{(s.amountPaidBefore || s.amountPaidAfter) ? ` · ${(Number(s.amountPaidBefore || 0) + Number(s.amountPaidAfter || 0)).toFixed(2)} €` : ""}</div>
-                          {(editable || deletable) && (
-                            <div className="flex gap-2 mt-0.5 flex-wrap">
-                              {editable && <button onClick={() => setEditingStay(s)} className="text-[#6d5c42] font-medium">{t("common_edit")}</button>}
-                              {editable && s.guestName && <button onClick={() => selectSameGuest(s.guestName)} className="text-purple-700 font-medium">Seleccionar iguales</button>}
-                              {deletable && <button onClick={() => remove(s.id)} className="text-rose-600 font-medium">{t("common_delete")}</button>}
-                            </div>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {editable && !hotelClosed && (
-                    <button onClick={() => setNewStayFor(r.id)} className="w-full flex items-center justify-center gap-1 text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-1.5">
-                      <Plus size={11} /> {t("guests_new_stay")}
-                    </button>
-                  )}
-                  {editable && hotelClosed && (
-                    <p className="text-[10px] text-stone-400 text-center italic">{t("guests_hotel_closed")}</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("guests_search")}
+            className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#ab9574] w-48"
+          />
         </div>
-      ))}
-      {groups.length === 0 && <p className="text-sm text-stone-400 italic">No hay alojamientos que coincidan con la búsqueda.</p>}
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls + " w-auto"}>
+          <option value="Todos">{t("guests_all_types")}</option>
+          {TIPOS_ALOJAMIENTO.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls + " w-auto"}>
+          <option value="Activas">Activas (no finalizadas/canceladas)</option>
+          <option value="Todas">Todos los estados</option>
+          <option value="Próxima">Próximas</option>
+          <option value="En curso">En curso</option>
+          <option value="Finalizada">Finalizadas</option>
+          <option value="Cancelada">Canceladas</option>
+        </select>
+      </div>
 
-      {(newStayFor || editingStay) && stayModalRoom && (
+      <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse min-w-[1100px]">
+            <thead>
+              <tr className="border-b border-stone-200 bg-stone-50">
+                {editable && (
+                  <th className="py-2 px-2 w-8">
+                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAllVisible} />
+                  </th>
+                )}
+                <SortHeader col="room">Unidad</SortHeader>
+                <SortHeader col="guestName">Huésped</SortHeader>
+                <SortHeader col="checkIn">Entrada</SortHeader>
+                <SortHeader col="checkOut">Salida</SortHeader>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Noches</th>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Pers.</th>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Régimen</th>
+                <SortHeader col="status">Estado</SortHeader>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Pagado antes</th>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Pagado después</th>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((s) => {
+                const nights = daysBetween(s.checkIn, s.checkOut) + 1;
+                const timing = s.status === "Cancelada" ? "Cancelada" : stayTiming(s);
+                const isSelected = selectedIds.has(s.id);
+                return (
+                  <tr key={s.id} className={`border-b border-stone-100 hover:bg-stone-50/60 ${isSelected ? "bg-[#ab9574]/10" : ""}`}>
+                    {editable && (
+                      <td className="px-2"><input type="checkbox" checked={isSelected} onChange={() => toggleSelected(s.id)} /></td>
+                    )}
+                    <td className="py-1 px-2 font-medium text-stone-700 whitespace-nowrap">
+                      {unitLabel(s.room)}
+                      {s.groupId && <span className="ml-1"><Badge tone="purple">Grupo</Badge></span>}
+                    </td>
+                    <td className="py-1 px-2 min-w-[140px]">
+                      {editable ? (
+                        <input
+                          defaultValue={s.guestName}
+                          onBlur={(e) => e.target.value !== s.guestName && updateField(s.id, "guestName", e.target.value)}
+                          className="w-full bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none"
+                        />
+                      ) : (s.guestName || "—")}
+                    </td>
+                    <td className="py-1 px-2">
+                      {editable ? (
+                        <input type="date" value={s.checkIn} onChange={(e) => updateField(s.id, "checkIn", e.target.value)}
+                          className="bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none" />
+                      ) : s.checkIn}
+                    </td>
+                    <td className="py-1 px-2">
+                      {editable ? (
+                        <input type="date" value={s.checkOut} onChange={(e) => updateField(s.id, "checkOut", e.target.value)}
+                          className="bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none" />
+                      ) : s.checkOut}
+                    </td>
+                    <td className="py-1 px-2 text-stone-500">{nights}</td>
+                    <td className="py-1 px-2 w-16">
+                      {editable ? (
+                        <input
+                          type="number" min="0" max={s.room.capacity} value={s.numGuests}
+                          onChange={(e) => updateField(s.id, "numGuests", Math.min(Number(e.target.value), s.room.capacity))}
+                          className="w-14 bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none"
+                        />
+                      ) : s.numGuests}
+                    </td>
+                    <td className="py-1 px-2">
+                      {editable ? (
+                        <select value={s.mealPlan} onChange={(e) => updateField(s.id, "mealPlan", e.target.value)}
+                          className="bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none max-w-[120px]">
+                          {MEAL_PLANS.map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                      ) : s.mealPlan}
+                    </td>
+                    <td className="py-1 px-2">
+                      <div className="flex items-center gap-1">
+                        {editable ? (
+                          <select
+                            value={s.status}
+                            onChange={(e) => updateField(s.id, "status", e.target.value)}
+                            className="bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none"
+                          >
+                            <option value="Confirmada">Confirmada</option>
+                            <option value="Cancelada">Cancelada</option>
+                          </select>
+                        ) : null}
+                        <Badge tone={stayTone(s)}>{t("st_" + timing)}</Badge>
+                      </div>
+                    </td>
+                    <td className="py-1 px-2 w-20">
+                      {editable ? (
+                        <input
+                          type="number" min="0" step="any" value={s.amountPaidBefore || ""}
+                          onChange={(e) => updateField(s.id, "amountPaidBefore", e.target.value === "" ? 0 : Number(e.target.value))}
+                          placeholder="0"
+                          className="w-16 bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none"
+                        />
+                      ) : (s.amountPaidBefore || 0)} €
+                    </td>
+                    <td className="py-1 px-2 w-20">
+                      {editable ? (
+                        <input
+                          type="number" min="0" step="any" value={s.amountPaidAfter || ""}
+                          onChange={(e) => updateField(s.id, "amountPaidAfter", e.target.value === "" ? 0 : Number(e.target.value))}
+                          placeholder="0"
+                          className="w-16 bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none"
+                        />
+                      ) : (s.amountPaidAfter || 0)} €
+                    </td>
+                    <td className="py-1 px-2 whitespace-nowrap">
+                      {deletable && <button onClick={() => remove(s.id)} className="text-rose-600 font-medium">{t("common_delete")}</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+              {sortedRows.length === 0 && (
+                <tr><td colSpan={12} className="text-center text-stone-400 italic py-6">No hay reservas que coincidan con el filtro.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showRoomPicker && (
+        <RoomPickerModal rooms={rooms} onClose={() => setShowRoomPicker(false)} onPick={(roomId) => { setShowRoomPicker(false); setNewStayFor(roomId); }} />
+      )}
+
+      {(newStayFor || editingStay) && (
         <StayModal
-          room={stayModalRoom}
+          room={newStayFor ? roomsById[newStayFor] : roomsById[editingStay.roomId]}
           stay={editingStay}
-          otherStays={stays.filter((s) => s.roomId === stayModalRoom.id && s.id !== editingStay?.id)}
+          otherStays={stays.filter((s) => s.roomId === (newStayFor || editingStay.roomId) && s.id !== editingStay?.id)}
           onClose={() => { setNewStayFor(null); setEditingStay(null); }}
           onSave={upsert}
         />
@@ -1046,7 +1150,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
         <GroupBookingModal rooms={rooms} onClose={() => setShowGroupModal(false)} onSave={saveGroup} />
       )}
 
-      {selectMode && selectedIds.size > 0 && (
+      {selectedIds.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-[#332b1f] text-white px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
           <span className="text-sm font-medium">{selectedIds.size} reserva{selectedIds.size !== 1 ? "s" : ""} seleccionada{selectedIds.size !== 1 ? "s" : ""}</span>
           <div className="flex gap-2">
@@ -1062,6 +1166,50 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     </div>
   );
 }
+
+function RoomPickerModal({ rooms, onClose, onPick }) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const groups = CATEGORIAS.map((c) => ({
+    ...c,
+    rooms: rooms.filter((r) => r.type === c.type && (!q || unitLabel(r).toLowerCase().includes(q))),
+  })).filter((g) => g.rooms.length > 0);
+
+  return (
+    <Modal title="¿Para qué unidad es la reserva?" onClose={onClose}>
+      <div className="relative mb-3">
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar unidad..."
+          className="pl-8 pr-3 py-2 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#ab9574] w-full"
+        />
+      </div>
+      <div className="max-h-80 overflow-y-auto space-y-3">
+        {groups.map((g) => (
+          <div key={g.type}>
+            <h4 className="text-[11px] font-semibold uppercase tracking-wide mb-1" style={{ color: g.color }}>{g.type}</h4>
+            <div className="grid grid-cols-3 gap-1.5">
+              {g.rooms.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => onPick(r.id)}
+                  className="text-xs text-left border border-stone-200 rounded-lg px-2 py-1.5 hover:border-[#ab9574] hover:bg-[#ab9574]/10"
+                >
+                  {unitLabel(r)}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {groups.length === 0 && <p className="text-sm text-stone-400 italic">Sin resultados.</p>}
+      </div>
+    </Modal>
+  );
+}
+
 
 function GroupEditModal({ stays, onClose, onSave }) {
   const first = stays[0];
