@@ -4,7 +4,7 @@ import {
   Plus, X, RefreshCw, Users, Phone, StickyNote, Clock, ChevronDown,
   CheckCircle2, AlertTriangle, Circle, Search, CalendarDays, MapPin,
   CalendarRange, ChevronLeft, ChevronRight, ShieldAlert, Rows3, ChevronsLeft, ChevronsRight,
-  BarChart3, TrendingUp, Timer, Award, Printer
+  BarChart3, TrendingUp, Timer, Award, Printer, CheckSquare
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -849,7 +849,9 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
   const [newStayFor, setNewStayFor] = useState(null); // roomId
   const [editingStay, setEditingStay] = useState(null); // stay object
   const [showGroupModal, setShowGroupModal] = useState(false);
-  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
 
   const filtered = rooms.filter((r) => {
     const matchesType = typeFilter === "Todos" || r.type === typeFilter;
@@ -879,17 +881,45 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     setShowGroupModal(false);
   };
 
-  const saveGroupEdit = async (updatedGroupStays) => {
-    const byId = Object.fromEntries(updatedGroupStays.map((s) => [s.id, s]));
-    await persistStays(stays.map((s) => (byId[s.id] ? byId[s.id] : s)));
-    setEditingGroupId(null);
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
-  const editingGroupStays = editingGroupId ? stays.filter((s) => s.groupId === editingGroupId) : [];
+
+  // Atajo: selecciona automáticamente todas las reservas con el mismo nombre de huésped
+  // (útil para agrupar reservas ya cargadas que nunca pasaron por "Reserva de grupo")
+  const selectSameGuest = (guestName) => {
+    const name = (guestName || "").trim().toLowerCase();
+    if (!name) return;
+    const matches = stays.filter((s) => (s.guestName || "").trim().toLowerCase() === name);
+    setSelectedIds(new Set(matches.map((s) => s.id)));
+    setSelectMode(true);
+  };
+
+  const clearSelection = () => { setSelectedIds(new Set()); setSelectMode(false); };
+
+  const selectedStays = stays.filter((s) => selectedIds.has(s.id));
+
+  const saveBulkEdit = async (updatedStays) => {
+    // Si no comparten ya un groupId, les asigna uno nuevo para que la próxima vez
+    // aparezcan marcadas como "Grupo" automáticamente.
+    const existingGroupId = updatedStays.find((s) => s.groupId)?.groupId;
+    const groupId = existingGroupId || uid();
+    const withGroup = updatedStays.map((s) => ({ ...s, groupId }));
+    const byId = Object.fromEntries(withGroup.map((s) => [s.id, s]));
+    await persistStays(stays.map((s) => (byId[s.id] ? byId[s.id] : s)));
+    setShowBulkEdit(false);
+    clearSelection();
+  };
 
   const stayModalRoom = newStayFor ? rooms.find((r) => r.id === newStayFor) : editingStay ? rooms.find((r) => r.id === editingStay.roomId) : null;
 
   return (
-    <div>
+    <div className={selectMode ? "pb-16" : ""}>
       <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">{t("guests_title")}</h2>
@@ -915,6 +945,14 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border border-[#ab9574] text-[#6d5c42] hover:bg-[#ab9574]/10"
             >
               <Users size={14} /> {t("guests_group_booking")}
+            </button>
+          )}
+          {editable && (
+            <button
+              onClick={() => (selectMode ? clearSelection() : setSelectMode(true))}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border ${selectMode ? selectedToggle : "border-stone-300 text-stone-600 hover:bg-stone-50"}`}
+            >
+              <CheckSquare size={14} /> {selectMode ? "Cancelar selección" : "Seleccionar varias"}
             </button>
           )}
         </div>
@@ -947,10 +985,20 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                   ) : (
                     <ul className="space-y-1 mb-1.5 max-h-28 overflow-y-auto pr-0.5">
                       {roomStays.map((s) => (
-                        <li key={s.id} className="text-[11px] border border-stone-100 rounded-lg px-2 py-1">
+                        <li key={s.id} className={`text-[11px] border rounded-lg px-2 py-1 ${selectedIds.has(s.id) ? "border-[#ab9574] bg-[#ab9574]/10" : "border-stone-100"}`}>
                           <div className="flex items-center justify-between gap-1">
-                            <span className="font-medium text-stone-700 truncate">{s.guestName || "Sin nombre"}</span>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {selectMode && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.has(s.id)}
+                                  onChange={() => toggleSelected(s.id)}
+                                  className="shrink-0"
+                                />
+                              )}
+                              <span className="font-medium text-stone-700 truncate">{s.guestName || "Sin nombre"}</span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
                               {s.groupId && <Badge tone="purple">Grupo</Badge>}
                               <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? t("st_Cancelada") : t("st_" + stayTiming(s))}</Badge>
                             </div>
@@ -959,7 +1007,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                           {(editable || deletable) && (
                             <div className="flex gap-2 mt-0.5 flex-wrap">
                               {editable && <button onClick={() => setEditingStay(s)} className="text-[#6d5c42] font-medium">{t("common_edit")}</button>}
-                              {editable && s.groupId && <button onClick={() => setEditingGroupId(s.groupId)} className="text-purple-700 font-medium">Editar grupo</button>}
+                              {editable && s.guestName && <button onClick={() => selectSameGuest(s.guestName)} className="text-purple-700 font-medium">Seleccionar iguales</button>}
                               {deletable && <button onClick={() => remove(s.id)} className="text-rose-600 font-medium">{t("common_delete")}</button>}
                             </div>
                           )}
@@ -998,8 +1046,18 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
         <GroupBookingModal rooms={rooms} onClose={() => setShowGroupModal(false)} onSave={saveGroup} />
       )}
 
-      {editingGroupId && (
-        <GroupEditModal stays={editingGroupStays} onClose={() => setEditingGroupId(null)} onSave={saveGroupEdit} />
+      {selectMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-[#332b1f] text-white px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
+          <span className="text-sm font-medium">{selectedIds.size} reserva{selectedIds.size !== 1 ? "s" : ""} seleccionada{selectedIds.size !== 1 ? "s" : ""}</span>
+          <div className="flex gap-2">
+            <button onClick={clearSelection} className="text-xs font-medium px-3 py-2 rounded-lg border border-white/30 hover:bg-white/10">Cancelar</button>
+            <button onClick={() => setShowBulkEdit(true)} className={`text-xs font-medium px-3 py-2 rounded-lg ${primaryBtn}`}>Editar en conjunto</button>
+          </div>
+        </div>
+      )}
+
+      {showBulkEdit && (
+        <GroupEditModal stays={selectedStays} onClose={() => setShowBulkEdit(false)} onSave={saveBulkEdit} />
       )}
     </div>
   );
