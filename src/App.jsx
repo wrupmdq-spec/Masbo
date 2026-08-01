@@ -612,7 +612,7 @@ export default function MasBoronatOps() {
         {tab === "planning" && <PlanningModule stays={stays} bookings={bookings} events={events} />}
         {tab === "planningGeneral" && <PlanningGeneralModule rooms={rooms} stays={stays} />}
         {tab === "admin" && role === "admin" && (
-          <AdminModule rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} expenses={expenses} persistExpenses={persistExpenses} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus} email={session.user.email} />
+          <AdminModule rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} salones={salones} expenses={expenses} persistExpenses={persistExpenses} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus} email={session.user.email} />
         )}
       </main>
     </div>
@@ -799,6 +799,7 @@ function Dashboard({ rooms, stays, bookings, tickets, events, setTab }) {
 /* ---------------------------------------------------------------------- */
 
 function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelClosed }) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("Todos");
   const [newStayFor, setNewStayFor] = useState(null); // roomId
@@ -839,19 +840,20 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     <div>
       <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Huéspedes y Alojamientos</h2>
-          <p className="text-xs text-stone-400">Cada unidad puede tener varias reservas: pasadas, en curso y futuras</p>
+          <h2 className="text-lg font-semibold text-stone-800">{t("guests_title")}</h2>
+          <p className="text-xs text-stone-400">{t("guests_subtitle")}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls + " w-auto"}>
-            {["Todos", ...TIPOS_ALOJAMIENTO].map((t) => <option key={t}>{t}</option>)}
+            <option value="Todos">{t("guests_all_types")}</option>
+            {TIPOS_ALOJAMIENTO.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
           </select>
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar alojamiento o huésped"
+              placeholder={t("guests_search")}
               className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#ab9574] w-40 sm:w-56"
             />
           </div>
@@ -860,7 +862,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
               onClick={() => setShowGroupModal(true)}
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border border-[#ab9574] text-[#6d5c42] hover:bg-[#ab9574]/10"
             >
-              <Users size={14} /> Reserva de grupo (varias unidades)
+              <Users size={14} /> {t("guests_group_booking")}
             </button>
           )}
         </div>
@@ -884,25 +886,25 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                 <div key={r.id} className="bg-white rounded-xl border border-stone-200 p-2.5">
                   <div className="flex items-center justify-between mb-1.5 gap-1">
                     <span className="font-semibold text-stone-800 text-sm truncate">{unitLabel(r)}</span>
-                    <Badge tone={current ? "green" : "slate"}>{current ? "Ocupada" : "Libre"}</Badge>
+                    <Badge tone={current ? "green" : "slate"}>{current ? t("guests_occupied_today") : t("guests_free_today")}</Badge>
                   </div>
-                  <p className="text-[10px] text-stone-400 mb-1.5">Cap. {r.capacity} pers.</p>
+                  <p className="text-[10px] text-stone-400 mb-1.5">{t("guests_capacity")} {r.capacity} pers.</p>
 
                   {roomStays.length === 0 ? (
-                    <p className="text-xs text-stone-400 italic mb-1.5">Sin reservas.</p>
+                    <p className="text-xs text-stone-400 italic mb-1.5">{t("guests_no_stays")}</p>
                   ) : (
                     <ul className="space-y-1 mb-1.5 max-h-28 overflow-y-auto pr-0.5">
                       {roomStays.map((s) => (
                         <li key={s.id} className="text-[11px] border border-stone-100 rounded-lg px-2 py-1">
                           <div className="flex items-center justify-between gap-1">
                             <span className="font-medium text-stone-700 truncate">{s.guestName || "Sin nombre"}</span>
-                            <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? "Canc." : stayTiming(s)}</Badge>
+                            <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? t("st_Cancelada") : t("st_" + stayTiming(s))}</Badge>
                           </div>
                           <div className="text-stone-400 mt-0.5 truncate">{s.checkIn} → {s.checkOut}{(s.amountPaidBefore || s.amountPaidAfter) ? ` · ${(Number(s.amountPaidBefore || 0) + Number(s.amountPaidAfter || 0)).toFixed(2)} €` : ""}</div>
                           {(editable || deletable) && (
                             <div className="flex gap-2 mt-0.5">
-                              {editable && <button onClick={() => setEditingStay(s)} className="text-[#6d5c42] font-medium">Editar</button>}
-                              {deletable && <button onClick={() => remove(s.id)} className="text-rose-600 font-medium">Eliminar</button>}
+                              {editable && <button onClick={() => setEditingStay(s)} className="text-[#6d5c42] font-medium">{t("common_edit")}</button>}
+                              {deletable && <button onClick={() => remove(s.id)} className="text-rose-600 font-medium">{t("common_delete")}</button>}
                             </div>
                           )}
                         </li>
@@ -912,11 +914,11 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
 
                   {editable && !hotelClosed && (
                     <button onClick={() => setNewStayFor(r.id)} className="w-full flex items-center justify-center gap-1 text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-1.5">
-                      <Plus size={11} /> Nueva reserva
+                      <Plus size={11} /> {t("guests_new_stay")}
                     </button>
                   )}
                   {editable && hotelClosed && (
-                    <p className="text-[10px] text-stone-400 text-center italic">Hotel cerrado</p>
+                    <p className="text-[10px] text-stone-400 text-center italic">{t("guests_hotel_closed")}</p>
                   )}
                 </div>
               );
@@ -1069,6 +1071,7 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
 }
 
 function StayModal({ room, stay, otherStays, onClose, onSave }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState(
     stay || { roomId: room.id, roomLabel: unitLabel(room), guestName: "", checkIn: todayStr(), checkOut: todayStr(), numGuests: 1, mealPlan: "Ninguno", status: "Confirmada", amountPaidBefore: 0, amountPaidAfter: 0 }
   );
@@ -1079,15 +1082,15 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
   );
 
   return (
-    <Modal title={`${unitLabel(room)} · capacidad ${room.capacity} pers.`} onClose={onClose}>
-      <Field label="Nombre del huésped">
+    <Modal title={`${unitLabel(room)} · ${t("field_capacity")} ${room.capacity} pers.`} onClose={onClose}>
+      <Field label={t("common_guest_name")}>
         <input className={inputCls} maxLength={120} value={form.guestName} onChange={(e) => set("guestName", e.target.value)} />
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Fecha de entrada">
+        <Field label={t("common_checkin")}>
           <input type="date" className={inputCls} value={form.checkIn} onChange={(e) => set("checkIn", e.target.value)} />
         </Field>
-        <Field label="Fecha de salida">
+        <Field label={t("common_checkout")}>
           <input type="date" className={inputCls} value={form.checkOut} onChange={(e) => set("checkOut", e.target.value)} />
         </Field>
       </div>
@@ -1096,36 +1099,36 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
         <div className="mb-3 text-xs bg-amber-50 border border-amber-300 text-amber-800 rounded-lg px-3 py-2 flex items-start gap-1.5">
           <AlertTriangle size={13} className="mt-0.5 shrink-0" />
           <span>
-            Esta unidad ya tiene {conflicts.length === 1 ? "otra reserva" : "otras reservas"} que se solapa{conflicts.length === 1 ? "" : "n"} en estas fechas:{" "}
-            {conflicts.map((c) => `${c.guestName || "sin nombre"} (${c.checkIn} → ${c.checkOut})`).join(", ")}. Puedes guardar igualmente si es intencionado (p. ej. overbooking controlado).
+            {conflicts.length === 1 ? t("field_conflict_one") : t("field_conflict_many")}{" "}
+            {conflicts.map((c) => `${c.guestName || t("field_no_name")} (${c.checkIn} → ${c.checkOut})`).join(", ")}. {t("field_conflict_note")}
           </span>
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label={`Número de huéspedes (máx. ${room.capacity})`}>
+        <Field label={t("field_num_guests_max").replace("{n}", room.capacity)}>
           <input type="number" min="0" max={room.capacity} className={inputCls} value={form.numGuests} onChange={(e) => set("numGuests", Math.min(Number(e.target.value), room.capacity))} />
         </Field>
-        <Field label="Régimen">
+        <Field label={t("common_meal_plan")}>
           <select className={inputCls} value={form.mealPlan} onChange={(e) => set("mealPlan", e.target.value)}>
-            {MEAL_PLANS.map((m) => <option key={m}>{m}</option>)}
+            {MEAL_PLANS.map((m) => <option key={m} value={m}>{t("mp_" + m)}</option>)}
           </select>
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <MoneyField label="Cobrado antes de la estancia" value={form.amountPaidBefore} onChange={(v) => set("amountPaidBefore", v)} />
-        <MoneyField label="Cobrado al finalizar" value={form.amountPaidAfter} onChange={(v) => set("amountPaidAfter", v)} />
+        <MoneyField label={t("common_paid_before")} value={form.amountPaidBefore} onChange={(v) => set("amountPaidBefore", v)} />
+        <MoneyField label={t("common_paid_after")} value={form.amountPaidAfter} onChange={(v) => set("amountPaidAfter", v)} />
       </div>
-      <Field label="Estado de la reserva">
+      <Field label={t("field_reservation_status")}>
         <div className="flex gap-2">
           {["Confirmada", "Cancelada"].map((s) => (
             <button key={s} onClick={() => set("status", s)} className={`flex-1 py-2 rounded-lg text-xs font-medium border ${form.status === s ? selectedToggle : unselectedToggle}`}>
-              {s}
+              {t("st_" + s)}
             </button>
           ))}
         </div>
       </Field>
-      <button onClick={() => onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Guardar reserva</button>
+      <button onClick={() => onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>{t("common_save_reservation")}</button>
     </Modal>
   );
 }
@@ -1135,6 +1138,7 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
 /* ---------------------------------------------------------------------- */
 
 function RestaurantModule({ stays, bookings, persistBookings, editable, deletable, hotelClosed }) {
+  const { t } = useTranslation();
   const [date, setDate] = useState(todayStr());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -1156,14 +1160,14 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Restaurante Mas Boronat</h2>
-          <p className="text-xs text-stone-400">Cocina mediterránea de temporada · Calçotades (enero–abril)</p>
+          <h2 className="text-lg font-semibold text-stone-800">{t("restaurant_title")}</h2>
+          <p className="text-xs text-stone-400">{t("restaurant_subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls + " w-auto"} />
           {editable && !hotelClosed && (
             <button onClick={() => setShowForm(true)} className={`flex items-center gap-1.5 px-3 py-2 ${primaryBtn}`}>
-              <Plus size={16} /> Nueva reserva
+              <Plus size={16} /> {t("restaurant_new_booking")}
             </button>
           )}
         </div>
@@ -1176,18 +1180,18 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
             <div key={shift.key} className="bg-white rounded-2xl border border-stone-200 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Clock size={15} className="text-stone-400" />
-                <h3 className="font-semibold text-stone-700 text-sm">{shift.label}</h3>
-                <span className="text-xs text-stone-400">desde las {shift.time}</span>
+                <h3 className="font-semibold text-stone-700 text-sm">{t("shift_" + shift.key)}</h3>
+                <span className="text-xs text-stone-400">{t("restaurant_since")} {shift.time}</span>
               </div>
               {shiftBookings.length === 0 ? (
-                <p className="text-xs text-stone-400 italic">Todavía no hay reservas.</p>
+                <p className="text-xs text-stone-400 italic">{t("restaurant_no_bookings")}</p>
               ) : (
                 <ul className="space-y-2">
                   {shiftBookings.map((b) => (
                     <li key={b.id} className="border border-stone-100 rounded-xl p-2.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-stone-800">{b.time} · {b.guestName || "Cliente"}</span>
-                        <Badge tone={b.clientType === "Huésped del Resort" ? "green" : "red"}>{b.clientType === "Huésped del Resort" ? "Resort" : "Externo"}</Badge>
+                        <span className="text-sm font-medium text-stone-800">{b.time} · {b.guestName || t("restaurant_client_default")}</span>
+                        <Badge tone={b.clientType === "Huésped del Resort" ? "green" : "red"}>{b.clientType === "Huésped del Resort" ? t("restaurant_client_hotel") : t("restaurant_client_external")}</Badge>
                       </div>
                       <div className="text-xs text-stone-500 mt-1 flex items-center gap-2 flex-wrap">
                         <span className="flex items-center gap-1"><Users size={11} /> {b.numPeople}</span>
@@ -1197,12 +1201,12 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
                       </div>
                       {b.menuNotes && (
                         <div className="text-xs text-[#6d5c42] bg-[#ab9574]/10 rounded-md px-2 py-1 mt-1.5 flex items-start gap-1">
-                          <StickyNote size={11} className="mt-0.5 shrink-0" /> <span><strong>Menú:</strong> {b.menuNotes}</span>
+                          <StickyNote size={11} className="mt-0.5 shrink-0" /> <span><strong>{t("restaurant_menu_label")}</strong> {b.menuNotes}</span>
                         </div>
                       )}
                       {b.allergens && (
                         <div className="text-xs text-rose-700 bg-rose-50 rounded-md px-2 py-1 mt-1.5 flex items-start gap-1">
-                          <ShieldAlert size={11} className="mt-0.5 shrink-0" /> <span><strong>Alérgenos:</strong> {b.allergens}</span>
+                          <ShieldAlert size={11} className="mt-0.5 shrink-0" /> <span><strong>{t("restaurant_allergens_label")}</strong> {b.allergens}</span>
                         </div>
                       )}
                       {b.notes && (
@@ -1212,8 +1216,8 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
                       )}
                       {(editable || deletable) && (
                         <div className="flex gap-3 mt-2">
-                          {editable && <button onClick={() => setEditingId(b.id)} className="text-xs text-[#6d5c42] font-medium">Editar</button>}
-                          {deletable && <button onClick={() => remove(b.id)} className="text-xs text-rose-600 font-medium">Eliminar</button>}
+                          {editable && <button onClick={() => setEditingId(b.id)} className="text-xs text-[#6d5c42] font-medium">{t("common_edit")}</button>}
+                          {deletable && <button onClick={() => remove(b.id)} className="text-xs text-rose-600 font-medium">{t("common_delete")}</button>}
                         </div>
                       )}
                     </li>
@@ -2535,7 +2539,11 @@ function HousekeepingStats({ rooms, auditLog }) {
 /* Estadísticas — Mantenimiento                                             */
 /* ---------------------------------------------------------------------- */
 
-function MaintenanceStats({ tickets }) {
+function MaintenanceStats({ tickets, salones }) {
+  const exteriorSalones = (salones || []).filter((s) => s.category === "Espacios Exteriores");
+  const exteriorClean = exteriorSalones.filter((s) => s.cleaningStatus === "Limpia").length;
+  const exteriorPending = exteriorSalones.length - exteriorClean;
+
   const statusCounts = {};
   TICKET_STATUSES.forEach((s) => (statusCounts[s] = 0));
   tickets.forEach((t) => { statusCounts[t.status] = (statusCounts[t.status] || 0) + 1; });
@@ -2570,6 +2578,28 @@ function MaintenanceStats({ tickets }) {
 
   return (
     <div className="space-y-4">
+      <div className="bg-white rounded-2xl border border-stone-200 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold text-stone-700">Espacios exteriores — estado de limpieza</h4>
+          <span className="text-xs text-stone-400">{exteriorClean} de {exteriorSalones.length} limpios</span>
+        </div>
+        {exteriorSalones.length === 0 ? (
+          <p className="text-sm text-stone-400 italic">Sin datos todavía.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {exteriorSalones.map((s) => (
+              <div key={s.id} className="border border-stone-100 rounded-lg px-3 py-2 flex items-center justify-between">
+                <span className="text-sm font-medium text-stone-700">{s.name}</span>
+                <Badge tone={cleanTone(s.cleaningStatus)}>{s.cleaningStatus}</Badge>
+              </div>
+            ))}
+          </div>
+        )}
+        {exteriorPending > 0 && (
+          <p className="text-xs text-amber-700 mt-2">{exteriorPending} espacio{exteriorPending !== 1 ? "s" : ""} pendiente{exteriorPending !== 1 ? "s" : ""} de revisar (se gestiona desde la pestaña Mantenimiento).</p>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatTile icon={Wrench} label="Tickets abiertos" value={openCount} />
         <StatTile icon={CheckCircle2} label="Resueltos" value={statusCounts["Resuelto"]} />
@@ -3069,7 +3099,7 @@ const ADMIN_SUBTABS = [
   { key: "actividad", label: "admintab_actividad" },
 ];
 
-function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpenses, persistStays, hotelStatus, persistHotelStatus, email }) {
+function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persistExpenses, persistStays, hotelStatus, persistHotelStatus, email }) {
   const { t } = useTranslation();
   const [log, setLog] = useState(null);
   const [confirming, setConfirming] = useState(null); // "close" | "open" | null
@@ -3201,7 +3231,7 @@ function AdminModule({ rooms, stays, bookings, tickets, expenses, persistExpense
       {subtab === "hospedaje" && <OccupancyStats rooms={rooms} stays={stays} />}
       {subtab === "restaurante" && <RestaurantStats bookings={bookings} />}
       {subtab === "limpieza" && <HousekeepingStats rooms={rooms} auditLog={log || []} />}
-      {subtab === "mantenimiento" && <MaintenanceStats tickets={tickets} />}
+      {subtab === "mantenimiento" && <MaintenanceStats tickets={tickets} salones={salones} />}
 
       {subtab === "actividad" && (
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
