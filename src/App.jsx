@@ -4,7 +4,7 @@ import {
   Plus, X, RefreshCw, Users, Phone, StickyNote, Clock, ChevronDown,
   CheckCircle2, AlertTriangle, Circle, Search, CalendarDays, MapPin,
   CalendarRange, ChevronLeft, ChevronRight, ShieldAlert, Rows3, ChevronsLeft, ChevronsRight,
-  BarChart3, TrendingUp, Timer, Award
+  BarChart3, TrendingUp, Timer, Award, Printer
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -450,10 +450,20 @@ export default function MasBoronatOps() {
     logAction({ email: session.user.email, role, module: "Sistema", action });
   };
   const persistSalones = async (next, actionOverride) => {
+    const changedIds = next
+      .filter((n) => {
+        const prev = salones.find((s) => s.id === n.id);
+        return !prev || prev.cleaningStatus !== n.cleaningStatus || prev.cleaningNotes !== n.cleaningNotes;
+      })
+      .map((s) => s.id);
+    const changedItems = next.filter((s) => changedIds.includes(s.id));
+    const hasExterior = changedItems.some((s) => s.category === "Espacios Exteriores");
+    const hasInterior = changedItems.some((s) => s.category === "Salones");
+    const module = hasExterior && !hasInterior ? "Mantenimiento / Espacios Exteriores" : "Limpieza / Salones";
     const action = actionOverride || summarizeChange(salones, next, "salón/espacio");
     setSalones(next);
     await saveShared(KEYS.salones, next);
-    logAction({ email: session.user.email, role, module: "Limpieza / Salones", action });
+    logAction({ email: session.user.email, role, module, action });
   };
   const persistExpenses = async (next) => {
     const action = summarizeChange(expenses, next, "gasto");
@@ -603,16 +613,50 @@ export default function MasBoronatOps() {
       )}
 
       <main className="max-w-6xl mx-auto px-3 sm:px-6 py-5 pb-16">
-        {tab === "dashboard" && <Dashboard rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} events={events} setTab={setTab} />}
-        {tab === "guests" && <GuestsModule rooms={rooms} stays={stays} persistStays={persistStays} editable={canEdit("guests")} deletable={canDelete(role, "guests")} hotelClosed={hotelStatus.closed && role !== "admin"} />}
-        {tab === "restaurant" && <RestaurantModule stays={stays} bookings={bookings} persistBookings={persistBookings} editable={canEdit("restaurant")} deletable={canDelete(role, "restaurant")} hotelClosed={hotelStatus.closed && role !== "admin"} />}
-        {tab === "housekeeping" && <HousekeepingModule rooms={rooms} persistRooms={persistRooms} salones={salones} persistSalones={persistSalones} editable={canEdit("housekeeping")} />}
-        {tab === "maintenance" && <MaintenanceModule tickets={tickets} persistTickets={persistTickets} rooms={rooms} salones={salones} persistSalones={persistSalones} editable={canEdit("maintenance")} deletable={canDelete(role, "maintenance")} />}
-        {tab === "events" && <EventsModule events={events} persistEvents={persistEvents} editable={canEdit("events")} deletable={canDelete(role, "events")} />}
-        {tab === "planning" && <PlanningModule stays={stays} bookings={bookings} events={events} />}
-        {tab === "planningGeneral" && <PlanningGeneralModule rooms={rooms} stays={stays} />}
-        {tab === "admin" && role === "admin" && (
-          <AdminModule rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} salones={salones} expenses={expenses} persistExpenses={persistExpenses} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus} email={session.user.email} />
+        {cfg.tabs.includes("dashboard") && (
+          <div className={tab === "dashboard" ? "" : "hidden"}>
+            <Dashboard rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} events={events} setTab={setTab} />
+          </div>
+        )}
+        {cfg.tabs.includes("guests") && (
+          <div className={tab === "guests" ? "" : "hidden"}>
+            <GuestsModule rooms={rooms} stays={stays} persistStays={persistStays} editable={canEdit("guests")} deletable={canDelete(role, "guests")} hotelClosed={hotelStatus.closed && role !== "admin"} />
+          </div>
+        )}
+        {cfg.tabs.includes("restaurant") && (
+          <div className={tab === "restaurant" ? "" : "hidden"}>
+            <RestaurantModule stays={stays} bookings={bookings} persistBookings={persistBookings} editable={canEdit("restaurant")} deletable={canDelete(role, "restaurant")} hotelClosed={hotelStatus.closed && role !== "admin"} />
+          </div>
+        )}
+        {cfg.tabs.includes("housekeeping") && (
+          <div className={tab === "housekeeping" ? "" : "hidden"}>
+            <HousekeepingModule rooms={rooms} persistRooms={persistRooms} salones={salones} persistSalones={persistSalones} editable={canEdit("housekeeping")} />
+          </div>
+        )}
+        {cfg.tabs.includes("maintenance") && (
+          <div className={tab === "maintenance" ? "" : "hidden"}>
+            <MaintenanceModule tickets={tickets} persistTickets={persistTickets} rooms={rooms} salones={salones} persistSalones={persistSalones} editable={canEdit("maintenance")} deletable={canDelete(role, "maintenance")} />
+          </div>
+        )}
+        {cfg.tabs.includes("events") && (
+          <div className={tab === "events" ? "" : "hidden"}>
+            <EventsModule events={events} persistEvents={persistEvents} editable={canEdit("events")} deletable={canDelete(role, "events")} />
+          </div>
+        )}
+        {cfg.tabs.includes("planning") && (
+          <div className={tab === "planning" ? "" : "hidden"}>
+            <PlanningModule stays={stays} bookings={bookings} events={events} />
+          </div>
+        )}
+        {cfg.tabs.includes("planningGeneral") && (
+          <div className={tab === "planningGeneral" ? "" : "hidden"}>
+            <PlanningGeneralModule rooms={rooms} stays={stays} persistStays={persistStays} />
+          </div>
+        )}
+        {role === "admin" && (
+          <div className={tab === "admin" ? "" : "hidden"}>
+            <AdminModule rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} salones={salones} expenses={expenses} persistExpenses={persistExpenses} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus} email={session.user.email} />
+          </div>
         )}
       </main>
     </div>
@@ -805,6 +849,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
   const [newStayFor, setNewStayFor] = useState(null); // roomId
   const [editingStay, setEditingStay] = useState(null); // stay object
   const [showGroupModal, setShowGroupModal] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState(null);
 
   const filtered = rooms.filter((r) => {
     const matchesType = typeFilter === "Todos" || r.type === typeFilter;
@@ -833,6 +878,13 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     await persistStays([...stays, ...newStays]);
     setShowGroupModal(false);
   };
+
+  const saveGroupEdit = async (updatedGroupStays) => {
+    const byId = Object.fromEntries(updatedGroupStays.map((s) => [s.id, s]));
+    await persistStays(stays.map((s) => (byId[s.id] ? byId[s.id] : s)));
+    setEditingGroupId(null);
+  };
+  const editingGroupStays = editingGroupId ? stays.filter((s) => s.groupId === editingGroupId) : [];
 
   const stayModalRoom = newStayFor ? rooms.find((r) => r.id === newStayFor) : editingStay ? rooms.find((r) => r.id === editingStay.roomId) : null;
 
@@ -898,12 +950,16 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                         <li key={s.id} className="text-[11px] border border-stone-100 rounded-lg px-2 py-1">
                           <div className="flex items-center justify-between gap-1">
                             <span className="font-medium text-stone-700 truncate">{s.guestName || "Sin nombre"}</span>
-                            <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? t("st_Cancelada") : t("st_" + stayTiming(s))}</Badge>
+                            <div className="flex items-center gap-1">
+                              {s.groupId && <Badge tone="purple">Grupo</Badge>}
+                              <Badge tone={stayTone(s)}>{s.status === "Cancelada" ? t("st_Cancelada") : t("st_" + stayTiming(s))}</Badge>
+                            </div>
                           </div>
                           <div className="text-stone-400 mt-0.5 truncate">{s.checkIn} → {s.checkOut}{(s.amountPaidBefore || s.amountPaidAfter) ? ` · ${(Number(s.amountPaidBefore || 0) + Number(s.amountPaidAfter || 0)).toFixed(2)} €` : ""}</div>
                           {(editable || deletable) && (
-                            <div className="flex gap-2 mt-0.5">
+                            <div className="flex gap-2 mt-0.5 flex-wrap">
                               {editable && <button onClick={() => setEditingStay(s)} className="text-[#6d5c42] font-medium">{t("common_edit")}</button>}
+                              {editable && s.groupId && <button onClick={() => setEditingGroupId(s.groupId)} className="text-purple-700 font-medium">Editar grupo</button>}
                               {deletable && <button onClick={() => remove(s.id)} className="text-rose-600 font-medium">{t("common_delete")}</button>}
                             </div>
                           )}
@@ -941,7 +997,66 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
       {showGroupModal && (
         <GroupBookingModal rooms={rooms} onClose={() => setShowGroupModal(false)} onSave={saveGroup} />
       )}
+
+      {editingGroupId && (
+        <GroupEditModal stays={editingGroupStays} onClose={() => setEditingGroupId(null)} onSave={saveGroupEdit} />
+      )}
     </div>
+  );
+}
+
+function GroupEditModal({ stays, onClose, onSave }) {
+  const first = stays[0];
+  const [checkIn, setCheckIn] = useState(first?.checkIn || todayStr());
+  const [checkOut, setCheckOut] = useState(first?.checkOut || todayStr());
+  const [guestName, setGuestName] = useState(first?.guestName || "");
+  const [mealPlan, setMealPlan] = useState(first?.mealPlan || "Ninguno");
+  const [status, setStatus] = useState(first?.status || "Confirmada");
+
+  const submit = () => {
+    const updated = stays.map((s) => ({
+      ...s,
+      checkIn,
+      checkOut,
+      guestName: guestName.trim() || s.guestName,
+      mealPlan,
+      status,
+    }));
+    onSave(updated);
+  };
+
+  return (
+    <Modal title={`Editar grupo completo (${stays.length} unidades)`} onClose={onClose}>
+      <p className="text-xs text-stone-500 mb-3">
+        Los cambios se aplican a las {stays.length} unidades de este grupo a la vez: {stays.map((s) => s.roomLabel).join(", ")}.
+      </p>
+      <Field label="Nombre del grupo / huésped principal">
+        <input className={inputCls} maxLength={120} value={guestName} onChange={(e) => setGuestName(e.target.value)} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Fecha de entrada">
+          <input type="date" className={inputCls} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
+        </Field>
+        <Field label="Fecha de salida">
+          <input type="date" className={inputCls} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+        </Field>
+      </div>
+      <Field label="Régimen">
+        <select className={inputCls} value={mealPlan} onChange={(e) => setMealPlan(e.target.value)}>
+          {MEAL_PLANS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </Field>
+      <Field label="Estado de la reserva">
+        <div className="flex gap-2">
+          {["Confirmada", "Cancelada"].map((s) => (
+            <button key={s} onClick={() => setStatus(s)} className={`flex-1 py-2 rounded-lg text-xs font-medium border ${status === s ? selectedToggle : unselectedToggle}`}>
+              {s}
+            </button>
+          ))}
+        </div>
+      </Field>
+      <button onClick={submit} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Aplicar a las {stays.length} unidades</button>
+    </Modal>
   );
 }
 
@@ -977,10 +1092,12 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
 
   const submit = () => {
     if (!guestName.trim() || selectedIds.length === 0) return;
+    const groupId = uid();
     const newStays = selectedIds.map((roomId) => {
       const room = rooms.find((r) => r.id === roomId);
       return {
         id: uid(),
+        groupId,
         roomId,
         roomLabel: unitLabel(room),
         guestName: guestName.trim(),
@@ -1137,7 +1254,103 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
 /* Restaurante                                                              */
 /* ---------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------- */
+/* Hoja de servicio imprimible del restaurante (formato físico / PDF)       */
+/* ---------------------------------------------------------------------- */
+
+function openPrintableDaySheet(dateStr, bookings) {
+  const dateLabel = new Date(dateStr + "T00:00:00").toLocaleDateString("es-ES", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  });
+  const generatedAt = new Date().toLocaleString("es-ES");
+
+  const shiftSections = SHIFTS.map((shift) => {
+    const rows = bookings
+      .filter((b) => b.timeSlot === shift.key)
+      .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+    const covers = rows.reduce((sum, b) => sum + (Number(b.numPeople) || 0), 0);
+
+    const rowsHtml = rows.length === 0
+      ? `<tr><td colspan="8" style="text-align:center;color:#9c9284;padding:14px;font-style:italic;">Sin reservas</td></tr>`
+      : rows.map((b) => `
+        <tr>
+          <td style="white-space:nowrap;font-weight:600;">${b.time || ""}</td>
+          <td>${b.guestName || "Cliente"}</td>
+          <td>${b.clientType === "Huésped del Resort" ? "Resort" : "Externo"}</td>
+          <td style="text-align:center;">${b.numPeople || ""}</td>
+          <td>${b.roomLabel || ""}</td>
+          <td>${b.contact || ""}</td>
+          <td>${(b.menuNotes || "").replace(/</g, "&lt;")}</td>
+          <td style="color:#b91c1c;font-weight:600;">${(b.allergens || "").replace(/</g, "&lt;")}</td>
+        </tr>
+        ${b.notes ? `<tr><td></td><td colspan="7" style="color:#78716c;font-style:italic;padding-top:0;">Nota: ${b.notes.replace(/</g, "&lt;")}</td></tr>` : ""}
+      `).join("");
+
+    return `
+      <h2 style="margin:28px 0 6px;font-size:16px;color:#332b1f;border-bottom:2px solid #ab9574;padding-bottom:4px;">
+        ${shift.label} <span style="font-weight:400;color:#78716c;font-size:12px;">— desde las ${shift.time} · ${rows.length} reserva${rows.length !== 1 ? "s" : ""} · ${covers} comensales</span>
+      </h2>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="background:#f5f4f2;text-align:left;">
+            <th style="padding:6px 8px;border-bottom:1px solid #d6d3d1;">Hora</th>
+            <th style="padding:6px 8px;border-bottom:1px solid #d6d3d1;">Cliente</th>
+            <th style="padding:6px 8px;border-bottom:1px solid #d6d3d1;">Tipo</th>
+            <th style="padding:6px 8px;border-bottom:1px solid #d6d3d1;">Pers.</th>
+            <th style="padding:6px 8px;border-bottom:1px solid #d6d3d1;">Alojamiento</th>
+            <th style="padding:6px 8px;border-bottom:1px solid #d6d3d1;">Contacto</th>
+            <th style="padding:6px 8px;border-bottom:1px solid #d6d3d1;">Menú</th>
+            <th style="padding:6px 8px;border-bottom:1px solid #d6d3d1;">Alérgenos</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    `;
+  }).join("");
+
+  const totalCovers = bookings.reduce((sum, b) => sum + (Number(b.numPeople) || 0), 0);
+
+  const html = `
+    <!doctype html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8" />
+      <title>Hoja de servicio — ${dateStr}</title>
+      <style>
+        @page { margin: 16mm; }
+        body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #292524; margin: 0; padding: 24px; }
+        tr { page-break-inside: avoid; }
+      </style>
+    </head>
+    <body>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #332b1f;padding-bottom:10px;margin-bottom:4px;">
+        <div>
+          <h1 style="margin:0;font-size:22px;color:#332b1f;">Mas Boronat — Hoja de Servicio</h1>
+          <p style="margin:4px 0 0;font-size:13px;color:#57534e;text-transform:capitalize;">${dateLabel}</p>
+        </div>
+        <div style="text-align:right;font-size:11px;color:#a8a29e;">
+          <div>${bookings.length} reservas · ${totalCovers} comensales en total</div>
+          <div>Generado: ${generatedAt}</div>
+        </div>
+      </div>
+      ${shiftSections}
+      <p style="margin-top:30px;font-size:10px;color:#a8a29e;">Mas Boronat · Masía s. XVII · Salomó, Tarragona</p>
+    </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank");
+  if (!win) {
+    alert("El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes para esta página e inténtalo de nuevo.");
+    return;
+  }
+  win.document.write(html);
+  win.document.close();
+  win.onload = () => win.print();
+}
+
 function RestaurantModule({ stays, bookings, persistBookings, editable, deletable, hotelClosed }) {
+
   const { t } = useTranslation();
   const [date, setDate] = useState(todayStr());
   const [showForm, setShowForm] = useState(false);
@@ -1165,6 +1378,13 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
         </div>
         <div className="flex items-center gap-2">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls + " w-auto"} />
+          <button
+            onClick={() => openPrintableDaySheet(date, dayBookings)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50"
+            title="Genera una hoja de servicio lista para imprimir o guardar como PDF"
+          >
+            <Printer size={14} /> Imprimir hoja del día
+          </button>
           {editable && !hotelClosed && (
             <button onClick={() => setShowForm(true)} className={`flex items-center gap-1.5 px-3 py-2 ${primaryBtn}`}>
               <Plus size={16} /> {t("restaurant_new_booking")}
@@ -2052,12 +2272,14 @@ function stayBarTone(s) {
   return { bg: "#a8a29e", text: "#fff" }; // gris: estancia ya finalizada
 }
 
-function PlanningGeneralModule({ rooms, stays }) {
+function PlanningGeneralModule({ rooms, stays, persistStays }) {
   const [windowStart, setWindowStart] = useState(todayStr());
   const [daysToShow, setDaysToShow] = useState(21);
   const [typeFilter, setTypeFilter] = useState("Todos");
   const [query, setQuery] = useState("");
   const [activeStay, setActiveStay] = useState(null);
+  const [dragging, setDragging] = useState(null); // { stayId, startX, deltaDays }
+  const dragMovedRef = useRef(false);
 
   const days = Array.from({ length: daysToShow }, (_, i) => addDays(windowStart, i));
   const windowEnd = days[days.length - 1];
@@ -2099,7 +2321,7 @@ function PlanningGeneralModule({ rooms, stays }) {
     <div>
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-stone-800">Planning General de Alojamiento</h2>
-        <p className="text-xs text-stone-400">Vista de conjunto por habitación — igual de un vistazo que el planning de siempre</p>
+        <p className="text-xs text-stone-400">Arrastra una reserva para cambiarla de fecha, o toca para ver el detalle</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -2207,14 +2429,45 @@ function PlanningGeneralModule({ rooms, stays }) {
                         {roomStays.map((s) => {
                           const tone = stayBarTone(s);
                           if (!tone) return null;
-                          const startOffset = Math.max(0, daysBetween(windowStart, s.checkIn));
-                          const clippedEnd = Math.min(daysBetween(windowStart, s.checkOut), daysToShow - 1);
+                          const isDraggingThis = dragging && dragging.stayId === s.id;
+                          const liveDelta = isDraggingThis ? dragging.deltaDays : 0;
+                          const startOffset = Math.max(0, daysBetween(windowStart, s.checkIn) + liveDelta);
+                          const clippedEnd = Math.min(daysBetween(windowStart, s.checkOut) + liveDelta, daysToShow - 1);
                           const widthDays = Math.max(1, clippedEnd - startOffset + 1);
+                          const canDrag = !!persistStays && s.status !== "Cancelada";
                           return (
                             <button
                               key={s.id}
-                              onClick={() => setActiveStay(s)}
-                              title={`${s.guestName || "Sin nombre"} · ${s.checkIn} → ${s.checkOut}`}
+                              onClick={() => {
+                                if (dragMovedRef.current) { dragMovedRef.current = false; return; }
+                                setActiveStay(s);
+                              }}
+                              onPointerDown={(e) => {
+                                if (!canDrag) return;
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                                dragMovedRef.current = false;
+                                setDragging({ stayId: s.id, startX: e.clientX, deltaDays: 0 });
+                              }}
+                              onPointerMove={(e) => {
+                                if (!isDraggingThis) return;
+                                const deltaX = e.clientX - dragging.startX;
+                                const deltaDays = Math.round(deltaX / GANTT_DAY_WIDTH);
+                                if (deltaDays !== dragging.deltaDays) {
+                                  if (deltaDays !== 0) dragMovedRef.current = true;
+                                  setDragging((d) => ({ ...d, deltaDays }));
+                                }
+                              }}
+                              onPointerUp={() => {
+                                if (!isDraggingThis) return;
+                                const dd = dragging.deltaDays;
+                                setDragging(null);
+                                if (dd !== 0 && persistStays) {
+                                  const newCheckIn = addDays(s.checkIn, dd);
+                                  const newCheckOut = addDays(s.checkOut, dd);
+                                  persistStays(stays.map((st) => (st.id === s.id ? { ...st, checkIn: newCheckIn, checkOut: newCheckOut } : st)));
+                                }
+                              }}
+                              title={canDrag ? `${s.guestName || "Sin nombre"} · ${s.checkIn} → ${s.checkOut} · arrastra para mover` : `${s.guestName || "Sin nombre"} · ${s.checkIn} → ${s.checkOut}`}
                               style={{
                                 left: startOffset * GANTT_DAY_WIDTH + 2,
                                 width: widthDays * GANTT_DAY_WIDTH - 4,
@@ -2222,8 +2475,12 @@ function PlanningGeneralModule({ rooms, stays }) {
                                 height: 32,
                                 backgroundColor: tone.bg,
                                 color: tone.text,
+                                cursor: canDrag ? (isDraggingThis ? "grabbing" : "grab") : "pointer",
+                                touchAction: "none",
+                                zIndex: isDraggingThis ? 20 : 1,
+                                boxShadow: isDraggingThis ? "0 4px 10px rgba(0,0,0,0.25)" : undefined,
                               }}
-                              className="absolute rounded-md px-2 text-[11px] font-medium truncate text-left shadow-sm hover:brightness-95"
+                              className="absolute rounded-md px-2 text-[11px] font-medium truncate text-left shadow-sm hover:brightness-95 select-none"
                             >
                               {s.guestName || "Sin nombre"}
                             </button>
@@ -2539,10 +2796,18 @@ function HousekeepingStats({ rooms, auditLog }) {
 /* Estadísticas — Mantenimiento                                             */
 /* ---------------------------------------------------------------------- */
 
-function MaintenanceStats({ tickets, salones }) {
+function MaintenanceStats({ tickets, salones, auditLog }) {
   const exteriorSalones = (salones || []).filter((s) => s.category === "Espacios Exteriores");
   const exteriorClean = exteriorSalones.filter((s) => s.cleaningStatus === "Limpia").length;
   const exteriorPending = exteriorSalones.length - exteriorClean;
+
+  const extLog = (auditLog || []).filter((l) => l.module === "Mantenimiento / Espacios Exteriores");
+  const extDays = Array.from({ length: 14 }, (_, i) => addDays(todayStr(), i - 13));
+  const extActivityData = extDays.map((d) => ({
+    day: d.slice(5),
+    acciones: extLog.filter((l) => (l.created_at || "").slice(0, 10) === d).length,
+  }));
+  const extActivityTotal = extActivityData.reduce((sum, d) => sum + d.acciones, 0);
 
   const statusCounts = {};
   TICKET_STATUSES.forEach((s) => (statusCounts[s] = 0));
@@ -2599,6 +2864,16 @@ function MaintenanceStats({ tickets, salones }) {
           <p className="text-xs text-amber-700 mt-2">{exteriorPending} espacio{exteriorPending !== 1 ? "s" : ""} pendiente{exteriorPending !== 1 ? "s" : ""} de revisar (se gestiona desde la pestaña Mantenimiento).</p>
         )}
       </div>
+
+      <ChartCard title={`Actividad de limpieza en espacios exteriores — últimos 14 días (${extActivityTotal} en total)`} height={200}>
+        <LineChart data={extActivityData}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+          <XAxis dataKey="day" tick={{ fontSize: 10 }} />
+          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+          <Tooltip />
+          <Line type="monotone" dataKey="acciones" stroke={CHART_GREEN} strokeWidth={2} dot={{ r: 2 }} />
+        </LineChart>
+      </ChartCard>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatTile icon={Wrench} label="Tickets abiertos" value={openCount} />
@@ -3231,7 +3506,7 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
       {subtab === "hospedaje" && <OccupancyStats rooms={rooms} stays={stays} />}
       {subtab === "restaurante" && <RestaurantStats bookings={bookings} />}
       {subtab === "limpieza" && <HousekeepingStats rooms={rooms} auditLog={log || []} />}
-      {subtab === "mantenimiento" && <MaintenanceStats tickets={tickets} salones={salones} />}
+      {subtab === "mantenimiento" && <MaintenanceStats tickets={tickets} salones={salones} auditLog={log || []} />}
 
       {subtab === "actividad" && (
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
