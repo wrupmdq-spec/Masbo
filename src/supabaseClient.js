@@ -11,18 +11,19 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 // La tabla "hotelops_kv" es la que creaste con el SQL del paso 1.
 
 export async function loadShared(key, fallback) {
-  try {
-    const { data, error } = await supabase
-      .from("hotelops_kv")
-      .select("value")
-      .eq("key", key)
-      .maybeSingle();
-    if (error || !data) return fallback;
-    return JSON.parse(data.value);
-  } catch (e) {
-    console.error("Error al cargar", key, e);
-    return fallback;
-  }
+  const { data, error } = await supabase
+    .from("hotelops_kv")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+  // Un error de red/permiso NO es lo mismo que "todavía no existe esta clave".
+  // Si lo tratáramos igual, un fallo temporal podría hacer que la app piense
+  // que no hay datos y los sobrescriba con valores en blanco. Por eso aquí
+  // SIEMPRE lanzamos el error real, y solo devolvemos "fallback" cuando
+  // Supabase confirma que sencillamente no existe esa fila todavía.
+  if (error) throw error;
+  if (!data) return fallback;
+  return JSON.parse(data.value);
 }
 
 export async function saveShared(key, value) {
