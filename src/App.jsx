@@ -13,7 +13,7 @@ import {
 import { loadShared, saveShared, supabase, getProfile, logAction, fetchAuditLog, fetchFullBackup, fetchStaffDirectory, adminResetPassword, recordDailyLogin, fetchDailyLogins } from "./supabaseClient";
 import Login from "./Login";
 import SetPassword from "./SetPassword";
-import { useTranslation, LANGUAGES } from "./i18n.jsx";
+import { useTranslation, LANGUAGES, LOCALE_MAP } from "./i18n.jsx";
 
 /* ---------------------------------------------------------------------- */
 /* Identidad Mas Boronat — masía del s. XVII, Salomó (Tarragona)          */
@@ -1020,14 +1020,14 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
       {pendingDrafts.length > 0 && (
         <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
           <p className="text-xs font-medium text-blue-800">
-            {pendingDrafts.length === 1 ? "Tienes una reserva sin terminar de guardar" : `Tienes ${pendingDrafts.length} reservas sin terminar de guardar`} (probablemente por haber cambiado de pestaña del navegador). ¿Quieres continuar donde lo dejaste?
+            {pendingDrafts.length === 1 ? t("guests_draft_banner_one") : t("guests_draft_banner_many").replace("{n}", pendingDrafts.length)} {t("guests_draft_banner_reason")}
           </p>
           <div className="flex flex-wrap gap-2">
             {pendingDrafts.map((d) => (
               <div key={d.key} className="flex items-center gap-1.5 bg-white border border-blue-200 rounded-lg px-2 py-1 text-xs">
-                <span className="text-stone-700">{d.data.guestName || "Sin nombre"} · {d.data.checkIn}</span>
-                <button onClick={() => resumeDraft(d)} className="text-blue-700 font-medium">Continuar</button>
-                <button onClick={() => discardDraft(d.key)} className="text-stone-400 font-medium">Descartar</button>
+                <span className="text-stone-700">{d.data.guestName || t("guests_no_name")} · {d.data.checkIn}</span>
+                <button onClick={() => resumeDraft(d)} className="text-blue-700 font-medium">{t("guests_draft_resume")}</button>
+                <button onClick={() => discardDraft(d.key)} className="text-stone-400 font-medium">{t("guests_draft_discard")}</button>
               </div>
             ))}
           </div>
@@ -1036,7 +1036,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
       <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">{t("guests_title")}</h2>
-          <p className="text-xs text-stone-400">{sortedRows.length} de {rows.length} reservas · edita cualquier celda directamente, se guarda sola</p>
+          <p className="text-xs text-stone-400">{t("guests_summary").replace("{shown}", sortedRows.length).replace("{total}", rows.length)}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {editable && !hotelClosed && (
@@ -1070,16 +1070,16 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
           {TIPOS_ALOJAMIENTO.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={inputCls + " w-auto"}>
-          <option value="Activas">Activas (no finalizadas/canceladas)</option>
-          <option value="Todas">Todos los estados</option>
-          <option value="Próxima">Próximas</option>
-          <option value="En curso">En curso</option>
-          <option value="Finalizada">Finalizadas</option>
-          <option value="Cancelada">Canceladas</option>
+          <option value="Activas">{t("guests_active_filter")}</option>
+          <option value="Todas">{t("guests_all_status")}</option>
+          <option value="Próxima">{t("guests_upcoming")}</option>
+          <option value="En curso">{t("guests_ongoing")}</option>
+          <option value="Finalizada">{t("guests_finished")}</option>
+          <option value="Cancelada">{t("guests_cancelled_filter")}</option>
         </select>
         <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} className={inputCls + " w-auto"}>
-          <option value="Todas">Todas las reservas</option>
-          <option value="__grouped__">Solo agrupadas ({groupOptions.reduce((n, g) => n + 1, 0) > 0 ? rows.filter((s) => s.groupId).length : 0})</option>
+          <option value="Todas">{t("guests_all_groups")}</option>
+          <option value="__grouped__">{t("guests_grouped_only")} ({groupOptions.reduce((n, g) => n + 1, 0) > 0 ? rows.filter((s) => s.groupId).length : 0})</option>
           {groupOptions.length > 0 && <option disabled>──────────</option>}
           {groupOptions.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
         </select>
@@ -1095,16 +1095,16 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAllVisible} />
                   </th>
                 )}
-                <SortHeader col="room">Unidad</SortHeader>
-                <SortHeader col="guestName">Huésped</SortHeader>
-                <SortHeader col="checkIn">Entrada</SortHeader>
-                <SortHeader col="checkOut">Salida</SortHeader>
-                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Noches</th>
-                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Pers.</th>
-                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Régimen</th>
-                <SortHeader col="status">Estado</SortHeader>
-                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Pagado antes</th>
-                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">Pagado después</th>
+                <SortHeader col="room">{t("col_unit")}</SortHeader>
+                <SortHeader col="guestName">{t("col_guest")}</SortHeader>
+                <SortHeader col="checkIn">{t("col_checkin")}</SortHeader>
+                <SortHeader col="checkOut">{t("col_checkout")}</SortHeader>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">{t("col_nights")}</th>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">{t("col_people")}</th>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">{t("col_regime")}</th>
+                <SortHeader col="status">{t("col_status")}</SortHeader>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">{t("col_paid_before")}</th>
+                <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap">{t("col_paid_after")}</th>
                 <th className="py-2 px-2 font-semibold text-stone-500 text-left whitespace-nowrap"></th>
               </tr>
             </thead>
@@ -1120,7 +1120,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                     )}
                     <td className="py-1 px-2 font-medium text-stone-700 whitespace-nowrap">
                       {unitLabel(s.room)}
-                      {s.groupId && <span className="ml-1"><Badge tone="purple">Grupo</Badge></span>}
+                      {s.groupId && <span className="ml-1"><Badge tone="purple">{t("guests_group_badge")}</Badge></span>}
                     </td>
                     <td className="py-1 px-2 min-w-[140px]">
                       {editable ? (
@@ -1157,7 +1157,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                       {editable ? (
                         <select value={s.mealPlan} onChange={(e) => updateField(s.id, "mealPlan", e.target.value)}
                           className="bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none max-w-[120px]">
-                          {MEAL_PLANS.map((m) => <option key={m} value={m}>{m}</option>)}
+                          {MEAL_PLANS.map((m) => <option key={m} value={m}>{t("mp_" + m)}</option>)}
                         </select>
                       ) : s.mealPlan}
                     </td>
@@ -1203,7 +1203,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                 );
               })}
               {sortedRows.length === 0 && (
-                <tr><td colSpan={12} className="text-center text-stone-400 italic py-6">No hay reservas que coincidan con el filtro.</td></tr>
+                <tr><td colSpan={12} className="text-center text-stone-400 italic py-6">{t("guests_no_match")}</td></tr>
               )}
             </tbody>
           </table>
@@ -1230,10 +1230,10 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
 
       {selectedIds.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-[#332b1f] text-white px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
-          <span className="text-sm font-medium">{selectedIds.size} reserva{selectedIds.size !== 1 ? "s" : ""} seleccionada{selectedIds.size !== 1 ? "s" : ""}</span>
+          <span className="text-sm font-medium">{selectedIds.size} {t("guests_selected_count")}</span>
           <div className="flex gap-2">
-            <button onClick={clearSelection} className="text-xs font-medium px-3 py-2 rounded-lg border border-white/30 hover:bg-white/10">Cancelar</button>
-            <button onClick={() => setShowBulkEdit(true)} className={`text-xs font-medium px-3 py-2 rounded-lg ${primaryBtn}`}>Editar en conjunto</button>
+            <button onClick={clearSelection} className="text-xs font-medium px-3 py-2 rounded-lg border border-white/30 hover:bg-white/10">{t("guests_cancel_selection")}</button>
+            <button onClick={() => setShowBulkEdit(true)} className={`text-xs font-medium px-3 py-2 rounded-lg ${primaryBtn}`}>{t("guests_edit_together")}</button>
           </div>
         </div>
       )}
@@ -1246,6 +1246,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
 }
 
 function RoomPickerModal({ rooms, onClose, onPick }) {
+  const { t: tt } = useTranslation();
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const groups = CATEGORIAS.map((c) => ({
@@ -1254,14 +1255,14 @@ function RoomPickerModal({ rooms, onClose, onPick }) {
   })).filter((g) => g.rooms.length > 0);
 
   return (
-    <Modal title="¿Para qué unidad es la reserva?" onClose={onClose}>
+    <Modal title={tt("guests_pick_unit_title")} onClose={onClose}>
       <div className="relative mb-3">
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
         <input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar unidad..."
+          placeholder={tt("guests_search_unit")}
           className="pl-8 pr-3 py-2 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#ab9574] w-full"
         />
       </div>
@@ -1282,7 +1283,7 @@ function RoomPickerModal({ rooms, onClose, onPick }) {
             </div>
           </div>
         ))}
-        {groups.length === 0 && <p className="text-sm text-stone-400 italic">Sin resultados.</p>}
+        {groups.length === 0 && <p className="text-sm text-stone-400 italic">{tt("guests_no_results")}</p>}
       </div>
     </Modal>
   );
@@ -1290,6 +1291,7 @@ function RoomPickerModal({ rooms, onClose, onPick }) {
 
 
 function GroupEditModal({ stays, onClose, onSave }) {
+  const { t } = useTranslation();
   const first = stays[0];
   const [checkIn, setCheckIn] = useState(first?.checkIn || todayStr());
   const [checkOut, setCheckOut] = useState(first?.checkOut || todayStr());
@@ -1310,41 +1312,42 @@ function GroupEditModal({ stays, onClose, onSave }) {
   };
 
   return (
-    <Modal title={`Editar grupo completo (${stays.length} unidades)`} onClose={onClose}>
+    <Modal title={t("guests_edit_group_title").replace("{n}", stays.length)} onClose={onClose}>
       <p className="text-xs text-stone-500 mb-3">
-        Los cambios se aplican a las {stays.length} unidades de este grupo a la vez: {stays.map((s) => s.roomLabel).join(", ")}.
+        {t("guests_edit_group_desc").replace("{n}", stays.length)} {stays.map((s) => s.roomLabel).join(", ")}.
       </p>
-      <Field label="Nombre del grupo / huésped principal">
+      <Field label={t("guests_group_name_label")}>
         <input className={inputCls} maxLength={120} value={guestName} onChange={(e) => setGuestName(e.target.value)} />
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Fecha de entrada">
+        <Field label={t("common_checkin")}>
           <input type="date" className={inputCls} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
         </Field>
-        <Field label="Fecha de salida">
+        <Field label={t("common_checkout")}>
           <input type="date" className={inputCls} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
         </Field>
       </div>
-      <Field label="Régimen">
+      <Field label={t("col_regime")}>
         <select className={inputCls} value={mealPlan} onChange={(e) => setMealPlan(e.target.value)}>
-          {MEAL_PLANS.map((m) => <option key={m} value={m}>{m}</option>)}
+          {MEAL_PLANS.map((m) => <option key={m} value={m}>{t("mp_" + m)}</option>)}
         </select>
       </Field>
-      <Field label="Estado de la reserva">
+      <Field label={t("field_reservation_status")}>
         <div className="flex gap-2">
           {["Confirmada", "Cancelada"].map((s) => (
             <button key={s} onClick={() => setStatus(s)} className={`flex-1 py-2 rounded-lg text-xs font-medium border ${status === s ? selectedToggle : unselectedToggle}`}>
-              {s}
+              {t("st_" + s)}
             </button>
           ))}
         </div>
       </Field>
-      <button onClick={submit} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Aplicar a las {stays.length} unidades</button>
+      <button onClick={submit} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>{t("guests_apply_to_n").replace("{n}", stays.length)}</button>
     </Modal>
   );
 }
 
 function GroupBookingModal({ rooms, onClose, onSave }) {
+  const { t } = useTranslation();
   const [guestName, setGuestName] = useState("");
   const [checkIn, setCheckIn] = useState(todayStr());
   const [checkOut, setCheckOut] = useState(todayStr());
@@ -1398,38 +1401,38 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
   };
 
   return (
-    <Modal title="Reserva de grupo — varias unidades a la vez" onClose={onClose}>
+    <Modal title={t("guests_group_modal_title")} onClose={onClose}>
       <p className="text-xs text-stone-500 mb-3">
-        Ideal para bodas, retiros o grupos grandes: crea una reserva para todas las unidades que necesites en un solo paso, con el mismo huésped/grupo y las mismas fechas.
+        {t("guests_group_modal_desc")}
       </p>
 
-      <Field label="Nombre del grupo / huésped principal">
-        <input className={inputCls} maxLength={120} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="p. ej. Boda García-Ruiz, Retiro Acme" />
+      <Field label={t("guests_group_name_label")}>
+        <input className={inputCls} maxLength={120} value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder={t("guests_group_guest_ph")} />
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Fecha de entrada">
+        <Field label={t("common_checkin")}>
           <input type="date" className={inputCls} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
         </Field>
-        <Field label="Fecha de salida">
+        <Field label={t("common_checkout")}>
           <input type="date" className={inputCls} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Huéspedes por unidad (aprox.)">
+        <Field label={t("guests_per_unit_label")}>
           <input type="number" min="1" className={inputCls} value={guestsPerUnit} onChange={(e) => setGuestsPerUnit(Number(e.target.value))} />
         </Field>
-        <Field label="Régimen">
+        <Field label={t("col_regime")}>
           <select className={inputCls} value={mealPlan} onChange={(e) => setMealPlan(e.target.value)}>
-            {MEAL_PLANS.map((m) => <option key={m}>{m}</option>)}
+            {MEAL_PLANS.map((m) => <option key={m} value={m}>{t("mp_" + m)}</option>)}
           </select>
         </Field>
       </div>
-      <MoneyField label="Importe cobrado por unidad al confirmar (opcional)" value={pricePerUnit} onChange={setPricePerUnit} />
+      <MoneyField label={t("guests_price_per_unit_label")} value={pricePerUnit} onChange={setPricePerUnit} />
 
       <div className="flex items-center justify-between mb-2 mt-1">
-        <span className="text-xs font-medium text-stone-500">Unidades a incluir</span>
+        <span className="text-xs font-medium text-stone-500">{t("guests_units_to_include")}</span>
         <button onClick={toggleAll} className="text-xs font-medium text-[#6d5c42]">
-          {allSelected ? "Quitar todas" : "Seleccionar todo el complejo"}
+          {allSelected ? t("guests_remove_all") : t("guests_select_complex")}
         </button>
       </div>
 
@@ -1457,7 +1460,7 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
       </div>
 
       <p className="text-xs text-stone-500 mb-4">
-        {selectedIds.length} unidad{selectedIds.length !== 1 ? "es" : ""} seleccionada{selectedIds.length !== 1 ? "s" : ""} · capacidad total {totalCapacity} pers.
+        {t("guests_selected_capacity").replace("{n}", selectedIds.length).replace("{cap}", totalCapacity)}
       </p>
 
       <button
@@ -1465,7 +1468,7 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
         disabled={!guestName.trim() || selectedIds.length === 0}
         className={`w-full py-2.5 ${primaryBtn} disabled:opacity-50`}
       >
-        Crear {selectedIds.length || ""} reserva{selectedIds.length !== 1 ? "s" : ""}
+        {t("guests_create_n").replace("{n}", selectedIds.length || "")}
       </button>
     </Modal>
   );
@@ -1864,17 +1867,18 @@ function cleanStatusIcon(status) {
 }
 
 function CleaningStatusCard({ id, label, cleaningStatus, cleaningNotes, onCycle, onSaveNote, noteKind, editable, noteEditing, setNoteEditing }) {
+  const { t } = useTranslation();
   return (
     <div className="bg-white rounded-xl border border-stone-200 p-2.5">
       <div className="flex items-center justify-between mb-1.5 gap-1">
         <span className="font-semibold text-stone-800 text-sm truncate">{label}</span>
         <Badge tone={cleanTone(cleaningStatus)}>
-          <span className="flex items-center gap-1">{cleanStatusIcon(cleaningStatus)} {cleaningStatus}</span>
+          <span className="flex items-center gap-1">{cleanStatusIcon(cleaningStatus)} {t("cl_" + cleaningStatus)}</span>
         </Badge>
       </div>
       {editable ? (
         <button onClick={() => onCycle(id)} className="w-full text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-1.5 mb-1.5">
-          Toca para actualizar →
+          {t("housekeeping_touch_update")}
         </button>
       ) : null}
       {cleaningNotes && (
@@ -1887,7 +1891,7 @@ function CleaningStatusCard({ id, label, cleaningStatus, cleaningNotes, onCycle,
           <NoteInline initial={cleaningNotes} onSave={(v) => onSaveNote(id, v)} onCancel={() => setNoteEditing(null)} />
         ) : (
           <button onClick={() => setNoteEditing({ kind: noteKind, id })} className="text-[11px] text-[#6d5c42] font-medium">
-            {cleaningNotes ? "Editar nota" : "+ Añadir nota"}
+            {cleaningNotes ? t("housekeeping_edit_note") : t("housekeeping_add_note")}
           </button>
         )
       )}
@@ -1900,6 +1904,7 @@ function CleaningStatusCard({ id, label, cleaningStatus, cleaningNotes, onCycle,
 /* ---------------------------------------------------------------------- */
 
 function HousekeepingModule({ rooms, persistRooms, salones, persistSalones, editable }) {
+  const { t } = useTranslation();
   const [noteEditing, setNoteEditing] = useState(null); // { kind: "room"|"salon", id }
   const [typeFilter, setTypeFilter] = useState("Todos");
   const [onlyPending, setOnlyPending] = useState(false);
@@ -1945,18 +1950,19 @@ function HousekeepingModule({ rooms, persistRooms, salones, persistSalones, edit
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Limpieza — Alojamientos, Salones y Espacios</h2>
-          <p className="text-xs text-stone-400">{pendingCount === 0 ? "Todo limpio ahora mismo" : `${pendingCount} unidad${pendingCount !== 1 ? "es" : ""} por revisar`}</p>
+          <h2 className="text-lg font-semibold text-stone-800">{t("housekeeping_title")}</h2>
+          <p className="text-xs text-stone-400">{pendingCount === 0 ? t("housekeeping_all_clean") : t("housekeeping_pending").replace("{n}", pendingCount)}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls + " w-auto"}>
-            {["Todos", ...TIPOS_ALOJAMIENTO].map((t) => <option key={t}>{t}</option>)}
+            <option value="Todos">{t("housekeeping_all_types")}</option>
+            {TIPOS_ALOJAMIENTO.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
           </select>
           <button
             onClick={() => setOnlyPending((v) => !v)}
             className={`text-xs font-medium px-3 py-2 rounded-lg border ${onlyPending ? selectedToggle : unselectedToggle}`}
           >
-            Solo pendientes
+            {t("housekeeping_only_pending")}
           </button>
         </div>
       </div>
@@ -2016,7 +2022,7 @@ function HousekeepingModule({ rooms, persistRooms, salones, persistSalones, edit
       ))}
 
       {roomGroups.length === 0 && salonGroups.length === 0 && (
-        <p className="text-sm text-stone-400 italic">No hay unidades que coincidan con el filtro.</p>
+        <p className="text-sm text-stone-400 italic">{t("housekeeping_no_match")}</p>
       )}
       <p className="text-[11px] text-stone-400 mt-2">Los salones se marcan "Sucia" automáticamente en cuanto pasa la fecha de un evento confirmado en ese espacio.</p>
     </div>
@@ -2024,13 +2030,14 @@ function HousekeepingModule({ rooms, persistRooms, salones, persistSalones, edit
 }
 
 function NoteInline({ initial, onSave, onCancel }) {
+  const { t } = useTranslation();
   const [v, setV] = useState(initial || "");
   return (
     <div>
       <textarea className={inputCls} maxLength={400} rows={2} value={v} onChange={(e) => setV(e.target.value)} placeholder="p. ej. toallas extra, petición del huésped" />
       <div className="flex gap-2 mt-1.5">
-        <button onClick={() => onSave(v)} className="text-xs font-medium bg-[#806c4d] text-white rounded-md px-2.5 py-1">Guardar</button>
-        <button onClick={onCancel} className="text-xs font-medium text-stone-500">Cancelar</button>
+        <button onClick={() => onSave(v)} className="text-xs font-medium bg-[#806c4d] text-white rounded-md px-2.5 py-1">{t("housekeeping_save")}</button>
+        <button onClick={onCancel} className="text-xs font-medium text-stone-500">{t("housekeeping_cancel")}</button>
       </div>
     </div>
   );
@@ -2041,6 +2048,7 @@ function NoteInline({ initial, onSave, onCancel }) {
 /* ---------------------------------------------------------------------- */
 
 function MaintenanceModule({ tickets, persistTickets, rooms, salones, persistSalones, editable, deletable }) {
+  const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState("Todos");
   const [noteEditing, setNoteEditing] = useState(null);
@@ -2063,27 +2071,27 @@ function MaintenanceModule({ tickets, persistTickets, rooms, salones, persistSal
   };
   const updateStatus = async (id, status) => {
     await persistTickets(
-      tickets.map((t) =>
-        t.id === id
-          ? { ...t, status, resolvedAt: status === "Resuelto" ? new Date().toISOString() : null }
-          : t
+      tickets.map((tk) =>
+        tk.id === id
+          ? { ...tk, status, resolvedAt: status === "Resuelto" ? new Date().toISOString() : null }
+          : tk
       )
     );
   };
-  const remove = async (id) => { await persistTickets(tickets.filter((t) => t.id !== id)); };
+  const remove = async (id) => { await persistTickets(tickets.filter((tk) => tk.id !== id)); };
 
   const sorted = [...tickets].sort((a, b) => {
     const order = { Alta: 0, Media: 1, Baja: 2 };
     if (order[a.priority] !== order[b.priority]) return order[a.priority] - order[b.priority];
     return new Date(b.timestamp) - new Date(a.timestamp);
   });
-  const filtered = filter === "Todos" ? sorted : sorted.filter((t) => t.status === filter);
+  const filtered = filter === "Todos" ? sorted : sorted.filter((tk) => tk.status === filter);
 
   return (
     <div>
       <div className="mb-5">
-        <h2 className="text-lg font-semibold text-stone-800 mb-1">Espacios Exteriores</h2>
-        <p className="text-xs text-stone-400 mb-2">Bar Piscina, Moreras y Plaza — se marcan solos como "Sucia" al terminar un evento ahí</p>
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">{t("maintenance_exterior_title")}</h2>
+        <p className="text-xs text-stone-400 mb-2">{t("maintenance_exterior_subtitle")}</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
           {exteriorSalones.map((s) => (
             <CleaningStatusCard
@@ -2104,49 +2112,50 @@ function MaintenanceModule({ tickets, persistTickets, rooms, salones, persistSal
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 className="text-lg font-semibold text-stone-800">Tickets de Mantenimiento</h2>
+        <h2 className="text-lg font-semibold text-stone-800">{t("maintenance_tickets_title")}</h2>
         <div className="flex items-center gap-2">
           <select value={filter} onChange={(e) => setFilter(e.target.value)} className={inputCls + " w-auto"}>
-            {["Todos", ...TICKET_STATUSES].map((s) => <option key={s}>{s}</option>)}
+            <option value="Todos">{t("maintenance_all")}</option>
+            {TICKET_STATUSES.map((s) => <option key={s} value={s}>{t("tk_" + s)}</option>)}
           </select>
           {editable && (
             <button onClick={() => setShowForm(true)} className={`flex items-center gap-1.5 px-3 py-2 ${primaryBtn}`}>
-              <Plus size={16} /> Nuevo ticket
+              <Plus size={16} /> {t("maintenance_new_ticket")}
             </button>
           )}
         </div>
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-stone-400 italic">Ningún ticket coincide con este filtro.</p>
+        <p className="text-sm text-stone-400 italic">{t("maintenance_no_match")}</p>
       ) : (
         <div className="space-y-3">
-          {filtered.map((t) => (
-            <div key={t.id} className="bg-white rounded-2xl border border-stone-200 p-4">
+          {filtered.map((tk) => (
+            <div key={tk.id} className="bg-white rounded-2xl border border-stone-200 p-4">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-1.5">
-                <span className="font-semibold text-stone-800">{t.location}</span>
+                <span className="font-semibold text-stone-800">{tk.location}</span>
                 <div className="flex gap-2">
-                  <Badge tone={priorityTone(t.priority)}>Prioridad {t.priority}</Badge>
-                  <Badge tone={ticketStatusTone(t.status)}>{t.status}</Badge>
+                  <Badge tone={priorityTone(tk.priority)}>{t("maintenance_priority_label")} {t("pr_" + tk.priority)}</Badge>
+                  <Badge tone={ticketStatusTone(tk.status)}>{t("tk_" + tk.status)}</Badge>
                 </div>
               </div>
-              <p className="text-sm text-stone-600 mb-2">{t.issue}</p>
+              <p className="text-sm text-stone-600 mb-2">{tk.issue}</p>
               <div className="text-xs text-stone-400 flex flex-wrap gap-3 mb-2">
-                {t.assignedTo && <span>Asignado: {t.assignedTo}</span>}
-                <span>{new Date(t.timestamp).toLocaleString()}</span>
+                {tk.assignedTo && <span>{t("maintenance_assigned")} {tk.assignedTo}</span>}
+                <span>{new Date(tk.timestamp).toLocaleString()}</span>
               </div>
               {(editable || deletable) && (
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   {editable && (
                     <div className="flex gap-2">
                       {TICKET_STATUSES.map((s) => (
-                        <button key={s} onClick={() => updateStatus(t.id, s)} className={`text-xs font-medium px-2.5 py-1 rounded-lg border ${t.status === s ? selectedToggle : unselectedToggle}`}>
-                          {s}
+                        <button key={s} onClick={() => updateStatus(tk.id, s)} className={`text-xs font-medium px-2.5 py-1 rounded-lg border ${tk.status === s ? selectedToggle : unselectedToggle}`}>
+                          {t("tk_" + s)}
                         </button>
                       ))}
                     </div>
                   )}
-                  {deletable && <button onClick={() => remove(t.id)} className="text-xs text-rose-600 font-medium">Eliminar</button>}
+                  {deletable && <button onClick={() => remove(tk.id)} className="text-xs text-rose-600 font-medium">{t("common_delete")}</button>}
                 </div>
               )}
             </div>
@@ -2160,6 +2169,7 @@ function MaintenanceModule({ tickets, persistTickets, rooms, salones, persistSal
 }
 
 function TicketModal({ rooms, salones, onClose, onSave }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({ location: "", issue: "", priority: "Media", status: "Pendiente", assignedTo: "" });
   const [customLocation, setCustomLocation] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -2170,14 +2180,14 @@ function TicketModal({ rooms, salones, onClose, onSave }) {
   };
 
   return (
-    <Modal title="Nuevo ticket de mantenimiento" onClose={onClose}>
-      <Field label="Alojamiento / salón / espacio">
+    <Modal title={t("maintenance_new_ticket_title")} onClose={onClose}>
+      <Field label={t("maintenance_location_label")}>
         {!customLocation ? (
           <select className={inputCls} value={form.location} onChange={(e) => onLocationSelect(e.target.value)}>
-            <option value="">Seleccionar…</option>
-            {TIPOS_ALOJAMIENTO.map((t) => (
-              <optgroup key={t} label={t}>
-                {rooms.filter((r) => r.type === t).map((r) => (
+            <option value="">{t("maintenance_select_placeholder")}</option>
+            {TIPOS_ALOJAMIENTO.map((ty) => (
+              <optgroup key={ty} label={ty}>
+                {rooms.filter((r) => r.type === ty).map((r) => (
                   <option key={r.id} value={unitLabel(r)}>{unitLabel(r)}</option>
                 ))}
               </optgroup>
@@ -2189,31 +2199,31 @@ function TicketModal({ rooms, salones, onClose, onSave }) {
                 ))}
               </optgroup>
             ))}
-            <option value="__otro__">Otro (especificar)…</option>
+            <option value="__otro__">{t("maintenance_other_specify")}</option>
           </select>
         ) : (
           <div className="flex gap-2">
-            <input className={inputCls} maxLength={120} value={form.location} onChange={(e) => set("location", e.target.value)} placeholder="Escribe la ubicación" autoFocus />
-            <button onClick={() => setCustomLocation(false)} className="text-xs text-stone-500 shrink-0">Elegir de la lista</button>
+            <input className={inputCls} maxLength={120} value={form.location} onChange={(e) => set("location", e.target.value)} placeholder={t("maintenance_location_ph")} autoFocus />
+            <button onClick={() => setCustomLocation(false)} className="text-xs text-stone-500 shrink-0">{t("maintenance_choose_from_list")}</button>
           </div>
         )}
       </Field>
-      <Field label="Descripción del problema">
-        <textarea className={inputCls} maxLength={400} rows={2} value={form.issue} onChange={(e) => set("issue", e.target.value)} placeholder="p. ej. aire acondicionado gotea, luz fundida" />
+      <Field label={t("maintenance_issue_label")}>
+        <textarea className={inputCls} maxLength={400} rows={2} value={form.issue} onChange={(e) => set("issue", e.target.value)} placeholder={t("maintenance_issue_ph")} />
       </Field>
-      <Field label="Prioridad">
+      <Field label={t("maintenance_priority_label")}>
         <div className="flex gap-2">
           {PRIORITIES.map((p) => (
             <button key={p} onClick={() => set("priority", p)} className={`flex-1 py-2 rounded-lg text-xs font-medium border ${form.priority === p ? selectedToggle : unselectedToggle}`}>
-              {p}
+              {t("pr_" + p)}
             </button>
           ))}
         </div>
       </Field>
-      <Field label="Empleado asignado (opcional)">
+      <Field label={t("maintenance_assigned_label")}>
         <input className={inputCls} maxLength={120} value={form.assignedTo} onChange={(e) => set("assignedTo", e.target.value)} />
       </Field>
-      <button onClick={() => form.location && form.issue && onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Crear ticket</button>
+      <button onClick={() => form.location && form.issue && onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>{t("maintenance_create")}</button>
     </Modal>
   );
 }
@@ -2223,6 +2233,7 @@ function TicketModal({ rooms, salones, onClose, onSave }) {
 /* ---------------------------------------------------------------------- */
 
 function EventsModule({ events, persistEvents, editable, deletable }) {
+  const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7));
@@ -2244,21 +2255,21 @@ function EventsModule({ events, persistEvents, editable, deletable }) {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Eventos</h2>
-          <p className="text-xs text-stone-400">Bodas, retiros corporativos, bienestar y celebraciones en la masía</p>
+          <h2 className="text-lg font-semibold text-stone-800">{t("events_title")}</h2>
+          <p className="text-xs text-stone-400">{t("events_subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           <input type="month" value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} className={inputCls + " w-auto"} />
           {editable && (
             <button onClick={() => setShowForm(true)} className={`flex items-center gap-1.5 px-3 py-2 ${primaryBtn}`}>
-              <Plus size={16} /> Nuevo evento
+              <Plus size={16} /> {t("events_new")}
             </button>
           )}
         </div>
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-stone-400 italic">No hay eventos este mes.</p>
+        <p className="text-sm text-stone-400 italic">{t("events_none_month")}</p>
       ) : (
         <div className="grid sm:grid-cols-2 gap-3">
           {filtered.map((e) => (
@@ -2266,26 +2277,26 @@ function EventsModule({ events, persistEvents, editable, deletable }) {
               <div className="flex items-center justify-between mb-2 gap-2">
                 <div>
                   <span className="font-semibold text-stone-800">{e.title}</span>
-                  <span className="block text-[11px] text-stone-400">{e.eventType}</span>
+                  <span className="block text-[11px] text-stone-400">{t("et_" + e.eventType)}</span>
                 </div>
-                <Badge tone={eventStatusTone(e.status)}>{e.status}</Badge>
+                <Badge tone={eventStatusTone(e.status)}>{t("ev_" + e.status)}</Badge>
               </div>
               <div className="text-sm text-stone-600 space-y-1">
                 <div className="flex items-center gap-1.5"><CalendarDays size={13} className="text-stone-400" /> {e.date} · {e.startTime}{e.endTime ? ` – ${e.endTime}` : ""}</div>
                 <div className="flex items-center gap-1.5"><MapPin size={13} className="text-stone-400" /> {e.space}</div>
                 {e.expectedGuests ? (
-                  <div className="flex items-center gap-1.5"><Users size={13} className="text-stone-400" /> {e.expectedGuests} personas esperadas</div>
+                  <div className="flex items-center gap-1.5"><Users size={13} className="text-stone-400" /> {e.expectedGuests} {t("events_expected_people")}</div>
                 ) : null}
-                {e.responsible && <div className="text-xs text-stone-400">Responsable: {e.responsible}</div>}
+                {e.responsible && <div className="text-xs text-stone-400">{t("events_responsible")} {e.responsible}</div>}
               </div>
               {e.menuNotes && (
                 <div className="text-xs text-[#6d5c42] bg-[#ab9574]/10 rounded-md px-2 py-1 mt-2 flex items-start gap-1">
-                  <StickyNote size={11} className="mt-0.5 shrink-0" /> <span><strong>Menú/catering:</strong> {e.menuNotes}</span>
+                  <StickyNote size={11} className="mt-0.5 shrink-0" /> <span><strong>{t("restaurant_menu_label")}</strong> {e.menuNotes}</span>
                 </div>
               )}
               {e.allergens && (
                 <div className="text-xs text-rose-700 bg-rose-50 rounded-md px-2 py-1 mt-1.5 flex items-start gap-1">
-                  <ShieldAlert size={11} className="mt-0.5 shrink-0" /> <span><strong>Alérgenos:</strong> {e.allergens}</span>
+                  <ShieldAlert size={11} className="mt-0.5 shrink-0" /> <span><strong>{t("restaurant_allergens_label")}</strong> {e.allergens}</span>
                 </div>
               )}
               {e.notes && (
@@ -2295,8 +2306,8 @@ function EventsModule({ events, persistEvents, editable, deletable }) {
               )}
               {(editable || deletable) && (
                 <div className="flex gap-3 mt-2">
-                  {editable && <button onClick={() => setEditingId(e.id)} className="text-xs text-[#6d5c42] font-medium">Editar</button>}
-                  {deletable && <button onClick={() => remove(e.id)} className="text-xs text-rose-600 font-medium">Eliminar</button>}
+                  {editable && <button onClick={() => setEditingId(e.id)} className="text-xs text-[#6d5c42] font-medium">{t("common_edit")}</button>}
+                  {deletable && <button onClick={() => remove(e.id)} className="text-xs text-rose-600 font-medium">{t("common_delete")}</button>}
                 </div>
               )}
             </div>
@@ -2312,6 +2323,7 @@ function EventsModule({ events, persistEvents, editable, deletable }) {
 }
 
 function EventModal({ event, onClose, onSave }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState(
     event || {
       title: "", eventType: "Boda", date: todayStr(), startTime: "18:00", endTime: "",
@@ -2322,60 +2334,60 @@ function EventModal({ event, onClose, onSave }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <Modal title={event ? "Editar evento" : "Nuevo evento"} onClose={onClose}>
-      <Field label="Título del evento">
+    <Modal title={event ? t("events_edit_title") : t("events_new_title")} onClose={onClose}>
+      <Field label={t("events_name_label")}>
         <input className={inputCls} maxLength={120} value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="p. ej. Boda García-Ruiz, Retiro corporativo Acme" />
       </Field>
-      <Field label="Tipo de evento">
+      <Field label={t("events_type_label")}>
         <select className={inputCls} value={form.eventType} onChange={(e) => set("eventType", e.target.value)}>
-          {EVENT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          {EVENT_TYPES.map((ty) => <option key={ty} value={ty}>{t("et_" + ty)}</option>)}
         </select>
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Fecha">
+        <Field label={t("events_date_label")}>
           <input type="date" className={inputCls} value={form.date} onChange={(e) => set("date", e.target.value)} />
         </Field>
-        <Field label="Espacio utilizado">
+        <Field label={t("events_space_label")}>
           <select className={inputCls} value={form.space} onChange={(e) => set("space", e.target.value)}>
-            {EVENT_SPACES.map((s) => <option key={s}>{s}</option>)}
+            {EVENT_SPACES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Hora de inicio">
+        <Field label={t("events_start_label")}>
           <input type="time" className={inputCls} value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
         </Field>
-        <Field label="Hora de fin (opcional)">
+        <Field label={t("events_end_label")}>
           <input type="time" className={inputCls} value={form.endTime} onChange={(e) => set("endTime", e.target.value)} />
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Personas esperadas">
+        <Field label={t("events_people_label")}>
           <input type="number" min="0" className={inputCls} value={form.expectedGuests} onChange={(e) => set("expectedGuests", e.target.value)} />
         </Field>
-        <Field label="Responsable">
-          <input className={inputCls} maxLength={120} value={form.responsible} onChange={(e) => set("responsible", e.target.value)} placeholder="Nombre del encargado" />
+        <Field label={t("events_responsible_label")}>
+          <input className={inputCls} maxLength={120} value={form.responsible} onChange={(e) => set("responsible", e.target.value)} placeholder={t("events_responsible_ph")} />
         </Field>
       </div>
-      <Field label="Estado">
+      <Field label={t("events_status_label")}>
         <div className="flex gap-2 flex-wrap">
           {EVENT_STATUSES.map((s) => (
             <button key={s} onClick={() => set("status", s)} className={`flex-1 py-2 rounded-lg text-xs font-medium border ${form.status === s ? selectedToggle : unselectedToggle}`}>
-              {s}
+              {t("ev_" + s)}
             </button>
           ))}
         </div>
       </Field>
-      <Field label="Menú / catering previsto">
+      <Field label={t("events_menu_label")}>
         <textarea className={inputCls} maxLength={400} rows={2} value={form.menuNotes} onChange={(e) => set("menuNotes", e.target.value)} placeholder="p. ej. Menú degustación 4 platos, cóctel de bienvenida…" />
       </Field>
-      <Field label="Alérgenos / restricciones alimentarias">
+      <Field label={t("events_allergens_label")}>
         <textarea className={inputCls} maxLength={400} rows={2} value={form.allergens} onChange={(e) => set("allergens", e.target.value)} placeholder="p. ej. 2 comensales sin gluten, alergia a marisco…" />
       </Field>
-      <Field label="Notas logísticas">
+      <Field label={t("events_notes_label")}>
         <textarea className={inputCls} maxLength={400} rows={2} value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Montaje, equipo audiovisual, decoración…" />
       </Field>
-      <button onClick={() => form.title && onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Guardar evento</button>
+      <button onClick={() => form.title && onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>{t("events_save")}</button>
     </Modal>
   );
 }
@@ -2391,6 +2403,7 @@ function shiftMonth(ym, delta) {
 }
 
 function PlanningModule({ stays, bookings, events }) {
+  const { t, lang } = useTranslation();
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(null);
 
@@ -2398,7 +2411,7 @@ function PlanningModule({ stays, bookings, events }) {
   const firstOfMonth = new Date(year, mon - 1, 1);
   const startOffset = (firstOfMonth.getDay() + 6) % 7; // lunes = 0
   const daysInMonth = new Date(year, mon, 0).getDate();
-  const monthName = firstOfMonth.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  const monthName = firstOfMonth.toLocaleDateString(LOCALE_MAP[lang], { month: "long", year: "numeric" });
   const today = todayStr();
 
   const cells = [];
@@ -2421,8 +2434,8 @@ function PlanningModule({ stays, bookings, events }) {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Planning</h2>
-          <p className="text-xs text-stone-400">Vista compartida de alojamientos, reservas y eventos, de julio 2026 a diciembre 2030</p>
+          <h2 className="text-lg font-semibold text-stone-800">{t("planning_title")}</h2>
+          <p className="text-xs text-stone-400">{t("planning_subtitle")}</p>
         </div>
         <div className="flex items-center gap-1.5">
           <button
@@ -2481,20 +2494,20 @@ function PlanningModule({ stays, bookings, events }) {
           })}
         </div>
         <div className="flex items-center gap-4 mt-3 text-[11px] text-stone-400 flex-wrap">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-100 border border-emerald-300 inline-block" /> Alojamientos ocupados</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-sky-100 border border-sky-300 inline-block" /> Reservas restaurante</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-violet-100 border border-violet-300 inline-block" /> Eventos</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-100 border border-emerald-300 inline-block" /> {t("planning_legend_units")}</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-sky-100 border border-sky-300 inline-block" /> {t("planning_legend_restaurant")}</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-violet-100 border border-violet-300 inline-block" /> {t("planning_legend_events")}</span>
         </div>
       </div>
 
       {selectedDate && (
         <div className="mt-4 bg-white rounded-2xl border border-stone-200 p-4">
-          <h3 className="font-semibold text-stone-800 mb-3">{new Date(selectedDate + "T00:00:00").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</h3>
+          <h3 className="font-semibold text-stone-800 mb-3 capitalize">{new Date(selectedDate + "T00:00:00").toLocaleDateString(LOCALE_MAP[lang], { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</h3>
 
           <div className="mb-4">
-            <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">Alojamientos ocupados</h4>
+            <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">{t("planning_legend_units")}</h4>
             {selStays.length === 0 ? (
-              <p className="text-sm text-stone-400 italic">Ninguna reserva de alojamiento ese día.</p>
+              <p className="text-sm text-stone-400 italic">{t("planning_no_stays_day")}</p>
             ) : (
               <ul className="space-y-1.5">
                 {selStays.map((s) => {
@@ -2503,16 +2516,16 @@ function PlanningModule({ stays, bookings, events }) {
                   return (
                     <li key={s.id} className="text-sm border border-stone-100 rounded-lg px-2.5 py-1.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-stone-700 font-medium">{s.roomLabel} · {s.guestName || "Huésped"}</span>
+                        <span className="text-stone-700 font-medium">{s.roomLabel} · {s.guestName || t("guests_no_name")}</span>
                         <div className="flex gap-1">
-                          {isCheckIn && <Badge tone="green">Entrada</Badge>}
-                          {isCheckOut && <Badge tone="red">Salida</Badge>}
-                          {!isCheckIn && !isCheckOut && <Badge tone="slate">En estancia</Badge>}
+                          {isCheckIn && <Badge tone="green">{t("planning_checkin_badge")}</Badge>}
+                          {isCheckOut && <Badge tone="red">{t("planning_checkout_badge")}</Badge>}
+                          {!isCheckIn && !isCheckOut && <Badge tone="slate">{t("planning_ongoing_badge")}</Badge>}
                         </div>
                       </div>
                       <div className="text-xs text-stone-400 flex items-center gap-2 flex-wrap mt-0.5">
                         <span className="flex items-center gap-1"><Users size={11} /> {s.numGuests} pers.</span>
-                        <span>{s.mealPlan}</span>
+                        <span>{t("mp_" + s.mealPlan)}</span>
                       </div>
                     </li>
                   );
@@ -2522,15 +2535,15 @@ function PlanningModule({ stays, bookings, events }) {
           </div>
 
           <div className="mb-4">
-            <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">Reservas de restaurante</h4>
+            <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">{t("planning_legend_restaurant")}</h4>
             {selBookings.length === 0 ? (
-              <p className="text-sm text-stone-400 italic">Sin reservas ese día.</p>
+              <p className="text-sm text-stone-400 italic">{t("planning_no_bookings_day")}</p>
             ) : (
               <ul className="space-y-1.5">
                 {selBookings.map((b) => (
                   <li key={b.id} className="text-sm flex items-center justify-between border border-stone-100 rounded-lg px-2.5 py-1.5">
-                    <span className="text-stone-700">{b.time} · {b.timeSlot} · {b.guestName || "Cliente"} ({b.numPeople}p)</span>
-                    <Badge tone={b.clientType === "Huésped del Resort" ? "green" : "red"}>{b.clientType === "Huésped del Resort" ? "Resort" : "Externo"}</Badge>
+                    <span className="text-stone-700">{b.time} · {t("shift_" + b.timeSlot)} · {b.guestName || t("restaurant_client_default")} ({b.numPeople}p)</span>
+                    <Badge tone={b.clientType === "Huésped del Resort" ? "green" : "red"}>{b.clientType === "Huésped del Resort" ? t("restaurant_client_hotel") : t("restaurant_client_external")}</Badge>
                   </li>
                 ))}
               </ul>
@@ -2538,18 +2551,18 @@ function PlanningModule({ stays, bookings, events }) {
           </div>
 
           <div>
-            <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">Eventos</h4>
+            <h4 className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">{t("planning_legend_events")}</h4>
             {selEvents.length === 0 ? (
-              <p className="text-sm text-stone-400 italic">Sin eventos ese día.</p>
+              <p className="text-sm text-stone-400 italic">{t("planning_no_events_day")}</p>
             ) : (
               <ul className="space-y-1.5">
                 {selEvents.map((e) => (
                   <li key={e.id} className="text-sm border border-stone-100 rounded-lg px-2.5 py-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-stone-700 font-medium">{e.startTime} · {e.title}</span>
-                      <Badge tone={eventStatusTone(e.status)}>{e.status}</Badge>
+                      <Badge tone={eventStatusTone(e.status)}>{t("ev_" + e.status)}</Badge>
                     </div>
-                    <div className="text-xs text-stone-400 flex items-center gap-1.5 mt-0.5"><MapPin size={11} /> {e.space} · {e.eventType}</div>
+                    <div className="text-xs text-stone-400 flex items-center gap-1.5 mt-0.5"><MapPin size={11} /> {e.space} · {t("et_" + e.eventType)}</div>
                   </li>
                 ))}
               </ul>
@@ -2587,6 +2600,7 @@ function stayBarTone(s) {
 }
 
 function PlanningGeneralModule({ rooms, stays, persistStays }) {
+  const { t, lang } = useTranslation();
   const [windowStart, setWindowStart] = useState(todayStr());
   const [daysToShow, setDaysToShow] = useState(21);
   const [typeFilter, setTypeFilter] = useState("Todos");
@@ -2620,7 +2634,7 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
   // Meses que aparecen en la ventana visible, con cuántos días de cada uno se ven (para la fila de cabecera)
   const monthSpans = [];
   days.forEach((d) => {
-    const label = new Date(d + "T00:00:00").toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+    const label = new Date(d + "T00:00:00").toLocaleDateString(LOCALE_MAP[lang], { month: "long", year: "numeric" });
     const last = monthSpans[monthSpans.length - 1];
     if (last && last.label === label) last.count += 1;
     else monthSpans.push({ label, count: 1 });
@@ -2634,8 +2648,8 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-stone-800">Planning General de Alojamiento</h2>
-        <p className="text-xs text-stone-400">Arrastra una reserva para cambiarla de fecha, o toca para ver el detalle</p>
+        <h2 className="text-lg font-semibold text-stone-800">{t("pgen_title")}</h2>
+        <p className="text-xs text-stone-400">{t("pgen_subtitle")}</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -2644,7 +2658,7 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar huésped"
+            placeholder={t("pgen_search_guest")}
             className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#ab9574] w-40 sm:w-56"
           />
         </div>
@@ -2652,9 +2666,9 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
           {["Todos", ...TIPOS_ALOJAMIENTO].map((t) => <option key={t}>{t}</option>)}
         </select>
         <select value={daysToShow} onChange={(e) => setDaysToShow(Number(e.target.value))} className={inputCls + " w-auto"}>
-          <option value={14}>14 días</option>
-          <option value={21}>21 días</option>
-          <option value={30}>30 días</option>
+          <option value={14}>{t("pgen_days_14")}</option>
+          <option value={21}>{t("pgen_days_21")}</option>
+          <option value={30}>{t("pgen_days_30")}</option>
         </select>
         <div className="flex items-center gap-1 ml-auto">
           <button onClick={() => setWindowStart(addDays(windowStart, -daysToShow))} className="p-2 rounded-lg border border-stone-300 text-stone-600" title="Página anterior">
@@ -2664,7 +2678,7 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
             <ChevronLeft size={15} />
           </button>
           <input type="date" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} className={inputCls + " w-auto"} />
-          <button onClick={() => setWindowStart(today)} className="px-2 py-2 rounded-lg border border-stone-300 text-stone-600 text-xs font-medium">Hoy</button>
+          <button onClick={() => setWindowStart(today)} className="px-2 py-2 rounded-lg border border-stone-300 text-stone-600 text-xs font-medium">{t("pgen_today")}</button>
           <button onClick={() => setWindowStart(addDays(windowStart, 7))} className="p-2 rounded-lg border border-stone-300 text-stone-600" title="7 días adelante">
             <ChevronRight size={15} />
           </button>
@@ -2675,9 +2689,9 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
       </div>
 
       <div className="flex items-center gap-4 mb-2 text-[11px] text-stone-500 flex-wrap">
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#16a34a] inline-block" /> Huésped alojado ahora</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#0369a1] inline-block" /> Reserva futura</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#a8a29e] inline-block" /> Estancia finalizada</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#16a34a] inline-block" /> {t("pgen_legend_now")}</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#0369a1] inline-block" /> {t("pgen_legend_future")}</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#a8a29e] inline-block" /> {t("pgen_legend_finished")}</span>
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
@@ -2821,7 +2835,7 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
               </div>
             ))}
             {groups.length === 0 && (
-              <p className="text-sm text-stone-400 italic p-4">No hay alojamientos que coincidan con la búsqueda.</p>
+              <p className="text-sm text-stone-400 italic p-4">{t("pgen_no_match")}</p>
             )}
           </div>
         </div>
@@ -2839,13 +2853,13 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
       {activeStay && (
         <Modal title={unitLabel(rooms.find((r) => r.id === activeStay.roomId) || {})} onClose={() => setActiveStay(null)}>
           <div className="text-sm text-stone-700 space-y-1.5">
-            <div><strong>Huésped:</strong> {activeStay.guestName || "Sin nombre"}</div>
-            <div><strong>Fechas:</strong> {activeStay.checkIn} → {activeStay.checkOut}</div>
-            <div><strong>Personas:</strong> {activeStay.numGuests}</div>
-            <div><strong>Régimen:</strong> {activeStay.mealPlan}</div>
-            <div><strong>Estado:</strong> <Badge tone={stayTone(activeStay)}>{stayTiming(activeStay)}</Badge></div>
+            <div><strong>{t("detail_guest")}</strong> {activeStay.guestName || t("guests_no_name")}</div>
+            <div><strong>{t("detail_dates")}</strong> {activeStay.checkIn} → {activeStay.checkOut}</div>
+            <div><strong>{t("detail_people")}</strong> {activeStay.numGuests}</div>
+            <div><strong>{t("detail_regime")}</strong> {t("mp_" + activeStay.mealPlan)}</div>
+            <div><strong>{t("detail_status")}</strong> <Badge tone={stayTone(activeStay)}>{t("st_" + stayTiming(activeStay))}</Badge></div>
           </div>
-          <p className="text-xs text-stone-400 mt-3">Para editar esta reserva, ve a "Huéspedes y Alojamientos".</p>
+          <p className="text-xs text-stone-400 mt-3">{t("pgen_edit_hint")}</p>
         </Modal>
       )}
     </div>
@@ -2923,6 +2937,7 @@ function ChartCard({ title, height = 220, children }) {
 /* ---------------------------------------------------------------------- */
 
 function OccupancyStats({ rooms, stays }) {
+  const { t } = useTranslation();
   const months = lastNMonths(6);
   const occData = occupancyByMonth(stays, months);
   const roomTypeById = Object.fromEntries(rooms.map((r) => [r.id, r.type]));
@@ -2948,23 +2963,23 @@ function OccupancyStats({ rooms, stays }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile icon={BarChart3} label="Ocupación este mes" value={`${currentMonthOcc}%`} />
-        <StatTile icon={Timer} label="Estancia media" value={`${avgNights} noches`} />
-        <StatTile icon={Users} label="Huéspedes por reserva" value={avgGuests} />
-        <StatTile icon={BedDouble} label="Reservas totales" value={validStays.length} />
+        <StatTile icon={BarChart3} label={t("admin_hospedaje_kpi_occ")} value={`${currentMonthOcc}%`} />
+        <StatTile icon={Timer} label={t("admin_hospedaje_kpi_stay")} value={t("admin_hospedaje_nights").replace("{n}", avgNights)} />
+        <StatTile icon={Users} label={t("admin_hospedaje_kpi_guests")} value={avgGuests} />
+        <StatTile icon={BedDouble} label={t("admin_hospedaje_kpi_total")} value={validStays.length} />
       </div>
 
-      <ChartCard title="Ocupación mensual (% de unidades ocupadas, últimos 6 meses)">
+      <ChartCard title={t("admin_hospedaje_chart_occ")}>
         <LineChart data={occData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="month" tick={{ fontSize: 11 }} />
           <YAxis tick={{ fontSize: 11 }} unit="%" />
           <Tooltip />
-          <Line type="monotone" dataKey="ocupacion" stroke={CHART_GOLD_DARK} strokeWidth={2} dot={{ r: 3 }} name="Ocupación" />
+          <Line type="monotone" dataKey="ocupacion" stroke={CHART_GOLD_DARK} strokeWidth={2} dot={{ r: 3 }} name={t("admin_hospedaje_kpi_occ")} />
         </LineChart>
       </ChartCard>
 
-      <ChartCard title="Reservas por tipo de alojamiento">
+      <ChartCard title={t("admin_hospedaje_chart_type")}>
         <BarChart data={typeData} layout="vertical" margin={{ left: 20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
@@ -2984,6 +2999,7 @@ function OccupancyStats({ rooms, stays }) {
 /* ---------------------------------------------------------------------- */
 
 function RestaurantStats({ bookings }) {
+  const { t } = useTranslation();
   const months = lastNMonths(6);
   const monthlyData = months.map((mKey) => ({
     month: monthLabelOf(mKey),
@@ -2992,13 +3008,13 @@ function RestaurantStats({ bookings }) {
 
   const shiftCounts = { Desayuno: 0, Almuerzo: 0, Cena: 0 };
   bookings.forEach((b) => { if (shiftCounts[b.timeSlot] !== undefined) shiftCounts[b.timeSlot]++; });
-  const shiftData = SHIFTS.map((s) => ({ turno: s.label, reservas: shiftCounts[s.key] }));
+  const shiftData = SHIFTS.map((s) => ({ turno: t("shift_" + s.key), reservas: shiftCounts[s.key] }));
 
   const hotelCount = bookings.filter((b) => b.clientType === "Huésped del Resort").length;
   const externalCount = bookings.length - hotelCount;
   const clientData = [
-    { name: "Huéspedes del resort", value: hotelCount },
-    { name: "Clientes externos", value: externalCount },
+    { name: t("restaurant_client_hotel"), value: hotelCount },
+    { name: t("restaurant_client_external"), value: externalCount },
   ];
 
   const avgPeople = bookings.length
@@ -3009,13 +3025,13 @@ function RestaurantStats({ bookings }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile icon={UtensilsCrossed} label="Reservas totales" value={bookings.length} />
-        <StatTile icon={Users} label="Personas por reserva" value={avgPeople} />
-        <StatTile icon={TrendingUp} label="Reservas este mes" value={monthlyData[monthlyData.length - 1]?.reservas ?? 0} />
-        <StatTile icon={Award} label="Turno más pedido" value={topShift && topShift.reservas > 0 ? topShift.turno : "—"} />
+        <StatTile icon={UtensilsCrossed} label={t("admin_restaurant_kpi_total")} value={bookings.length} />
+        <StatTile icon={Users} label={t("admin_restaurant_kpi_people")} value={avgPeople} />
+        <StatTile icon={TrendingUp} label={t("admin_restaurant_kpi_month")} value={monthlyData[monthlyData.length - 1]?.reservas ?? 0} />
+        <StatTile icon={Award} label={t("admin_restaurant_kpi_top_shift")} value={topShift && topShift.reservas > 0 ? topShift.turno : "—"} />
       </div>
 
-      <ChartCard title="Reservas de restaurante por mes">
+      <ChartCard title={t("admin_restaurant_chart_month")}>
         <BarChart data={monthlyData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="month" tick={{ fontSize: 11 }} />
@@ -3026,7 +3042,7 @@ function RestaurantStats({ bookings }) {
       </ChartCard>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        <ChartCard title="Por turno" height={200}>
+        <ChartCard title={t("admin_restaurant_chart_shift")} height={200}>
           <BarChart data={shiftData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
             <XAxis dataKey="turno" tick={{ fontSize: 10 }} />
@@ -3035,7 +3051,7 @@ function RestaurantStats({ bookings }) {
             <Bar dataKey="reservas" fill={CHART_BLUE} radius={[4, 4, 0, 0]} />
           </BarChart>
         </ChartCard>
-        <ChartCard title="Huéspedes vs. clientes externos" height={200}>
+        <ChartCard title={t("admin_restaurant_chart_client")} height={200}>
           <PieChart>
             <Pie data={clientData} dataKey="value" nameKey="name" outerRadius={70} label>
               <Cell fill={CHART_GREEN} />
@@ -3055,10 +3071,11 @@ function RestaurantStats({ bookings }) {
 /* ---------------------------------------------------------------------- */
 
 function HousekeepingStats({ rooms, auditLog }) {
+  const { t } = useTranslation();
   const statusCounts = {};
   CLEAN_STATUSES.forEach((s) => (statusCounts[s] = 0));
   rooms.forEach((r) => { statusCounts[r.cleaningStatus] = (statusCounts[r.cleaningStatus] || 0) + 1; });
-  const statusData = CLEAN_STATUSES.map((s) => ({ estado: s, unidades: statusCounts[s] }));
+  const statusData = CLEAN_STATUSES.map((s) => ({ estado: t("cl_" + s), rawStatus: s, unidades: statusCounts[s] }));
   const statusFill = { Limpia: CHART_GREEN, Sucia: CHART_ROSE, "En Progreso": CHART_AMBER, "Inspección Necesaria": CHART_PURPLE };
 
   const hkLog = auditLog.filter((l) => l.module === "Limpieza / Alojamientos");
@@ -3081,25 +3098,25 @@ function HousekeepingStats({ rooms, auditLog }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile icon={Sparkles} label="Unidades limpias ahora" value={`${cleanPct}%`} />
-        <StatTile icon={AlertTriangle} label="Sucias / en progreso" value={statusCounts["Sucia"] + statusCounts["En Progreso"]} />
-        <StatTile icon={Circle} label="Inspección necesaria" value={statusCounts["Inspección Necesaria"]} />
-        <StatTile icon={TrendingUp} label="Acciones (14 días)" value={last14Total} />
+        <StatTile icon={Sparkles} label={t("admin_hk_kpi_clean")} value={`${cleanPct}%`} />
+        <StatTile icon={AlertTriangle} label={t("admin_hk_kpi_dirty")} value={statusCounts["Sucia"] + statusCounts["En Progreso"]} />
+        <StatTile icon={Circle} label={t("admin_hk_kpi_inspect")} value={statusCounts["Inspección Necesaria"]} />
+        <StatTile icon={TrendingUp} label={t("admin_hk_kpi_actions")} value={last14Total} />
       </div>
 
-      <ChartCard title="Estado actual de las unidades" height={200}>
+      <ChartCard title={t("admin_hk_chart_status")} height={200}>
         <BarChart data={statusData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="estado" tick={{ fontSize: 9 }} interval={0} />
           <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
           <Tooltip />
           <Bar dataKey="unidades" radius={[4, 4, 0, 0]}>
-            {statusData.map((d, i) => <Cell key={i} fill={statusFill[d.estado]} />)}
+            {statusData.map((d, i) => <Cell key={i} fill={statusFill[d.rawStatus]} />)}
           </Bar>
         </BarChart>
       </ChartCard>
 
-      <ChartCard title="Actividad de limpieza — últimos 14 días" height={200}>
+      <ChartCard title={t("admin_hk_chart_activity")} height={200}>
         <LineChart data={activityData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="day" tick={{ fontSize: 10 }} />
@@ -3110,9 +3127,9 @@ function HousekeepingStats({ rooms, auditLog }) {
       </ChartCard>
 
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
-        <h4 className="text-sm font-semibold text-stone-700 mb-3">Quién más actualizó limpieza</h4>
+        <h4 className="text-sm font-semibold text-stone-700 mb-3">{t("admin_hk_chart_top")}</h4>
         {topEmployees.length === 0 ? (
-          <p className="text-sm text-stone-400 italic">Todavía no hay suficiente actividad registrada.</p>
+          <p className="text-sm text-stone-400 italic">{t("admin_hk_no_activity")}</p>
         ) : (
           <ResponsiveContainer width="100%" height={Math.max(120, topEmployees.length * 40)}>
             <BarChart data={topEmployees} layout="vertical" margin={{ left: 10 }}>
@@ -3134,6 +3151,7 @@ function HousekeepingStats({ rooms, auditLog }) {
 /* ---------------------------------------------------------------------- */
 
 function MaintenanceStats({ tickets, salones, auditLog }) {
+  const { t } = useTranslation();
   const exteriorSalones = (salones || []).filter((s) => s.category === "Espacios Exteriores");
   const exteriorClean = exteriorSalones.filter((s) => s.cleaningStatus === "Limpia").length;
   const exteriorPending = exteriorSalones.length - exteriorClean;
@@ -3148,29 +3166,29 @@ function MaintenanceStats({ tickets, salones, auditLog }) {
 
   const statusCounts = {};
   TICKET_STATUSES.forEach((s) => (statusCounts[s] = 0));
-  tickets.forEach((t) => { statusCounts[t.status] = (statusCounts[t.status] || 0) + 1; });
-  const statusData = TICKET_STATUSES.map((s) => ({ estado: s, tickets: statusCounts[s] }));
+  tickets.forEach((tk) => { statusCounts[tk.status] = (statusCounts[tk.status] || 0) + 1; });
+  const statusData = TICKET_STATUSES.map((s) => ({ estado: t("tk_" + s), rawStatus: s, tickets: statusCounts[s] }));
   const statusFill = { Pendiente: CHART_AMBER, "En Progreso": CHART_BLUE, Resuelto: CHART_GREEN };
 
   const priorityCounts = {};
   PRIORITIES.forEach((p) => (priorityCounts[p] = 0));
-  tickets.forEach((t) => { priorityCounts[t.priority] = (priorityCounts[t.priority] || 0) + 1; });
-  const priorityData = PRIORITIES.map((p) => ({ prioridad: p, tickets: priorityCounts[p] }));
+  tickets.forEach((tk) => { priorityCounts[tk.priority] = (priorityCounts[tk.priority] || 0) + 1; });
+  const priorityData = PRIORITIES.map((p) => ({ prioridad: t("pr_" + p), rawPriority: p, tickets: priorityCounts[p] }));
   const priorityFill = { Baja: CHART_GREEN, Media: CHART_AMBER, Alta: CHART_ROSE };
 
-  const resolved = tickets.filter((t) => t.status === "Resuelto" && t.resolvedAt);
+  const resolved = tickets.filter((tk) => tk.status === "Resuelto" && tk.resolvedAt);
   const avgResolutionHours = resolved.length
-    ? (resolved.reduce((sum, t) => sum + (new Date(t.resolvedAt) - new Date(t.timestamp)) / 3600000, 0) / resolved.length).toFixed(1)
+    ? (resolved.reduce((sum, tk) => sum + (new Date(tk.resolvedAt) - new Date(tk.timestamp)) / 3600000, 0) / resolved.length).toFixed(1)
     : null;
 
   const days = Array.from({ length: 14 }, (_, i) => addDays(todayStr(), i - 13));
   const createdData = days.map((d) => ({
     day: d.slice(5),
-    tickets: tickets.filter((t) => (t.timestamp || "").slice(0, 10) === d).length,
+    tickets: tickets.filter((tk) => (tk.timestamp || "").slice(0, 10) === d).length,
   }));
 
   const byLocation = {};
-  tickets.forEach((t) => { byLocation[t.location] = (byLocation[t.location] || 0) + 1; });
+  tickets.forEach((tk) => { byLocation[tk.location] = (byLocation[tk.location] || 0) + 1; });
   const topLocations = Object.entries(byLocation)
     .map(([location, count]) => ({ location, tickets: count }))
     .sort((a, b) => b.tickets - a.tickets)
@@ -3182,27 +3200,24 @@ function MaintenanceStats({ tickets, salones, auditLog }) {
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
         <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-semibold text-stone-700">Espacios exteriores — estado de limpieza</h4>
-          <span className="text-xs text-stone-400">{exteriorClean} de {exteriorSalones.length} limpios</span>
+          <h4 className="text-sm font-semibold text-stone-700">{t("maintenance_exterior_title")}</h4>
+          <span className="text-xs text-stone-400">{t("admin_maint_clean_of").replace("{clean}", exteriorClean).replace("{total}", exteriorSalones.length)}</span>
         </div>
         {exteriorSalones.length === 0 ? (
-          <p className="text-sm text-stone-400 italic">Sin datos todavía.</p>
+          <p className="text-sm text-stone-400 italic">{t("admin_maint_no_data")}</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {exteriorSalones.map((s) => (
               <div key={s.id} className="border border-stone-100 rounded-lg px-3 py-2 flex items-center justify-between">
                 <span className="text-sm font-medium text-stone-700">{s.name}</span>
-                <Badge tone={cleanTone(s.cleaningStatus)}>{s.cleaningStatus}</Badge>
+                <Badge tone={cleanTone(s.cleaningStatus)}>{t("cl_" + s.cleaningStatus)}</Badge>
               </div>
             ))}
           </div>
         )}
-        {exteriorPending > 0 && (
-          <p className="text-xs text-amber-700 mt-2">{exteriorPending} espacio{exteriorPending !== 1 ? "s" : ""} pendiente{exteriorPending !== 1 ? "s" : ""} de revisar (se gestiona desde la pestaña Mantenimiento).</p>
-        )}
       </div>
 
-      <ChartCard title={`Actividad de limpieza en espacios exteriores — últimos 14 días (${extActivityTotal} en total)`} height={200}>
+      <ChartCard title={t("admin_maint_exterior_activity") + ` (${extActivityTotal})`} height={200}>
         <LineChart data={extActivityData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="day" tick={{ fontSize: 10 }} />
@@ -3213,36 +3228,36 @@ function MaintenanceStats({ tickets, salones, auditLog }) {
       </ChartCard>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile icon={Wrench} label="Tickets abiertos" value={openCount} />
-        <StatTile icon={CheckCircle2} label="Resueltos" value={statusCounts["Resuelto"]} />
-        <StatTile icon={Timer} label="Tiempo medio de resolución" value={avgResolutionHours !== null ? `${avgResolutionHours} h` : "—"} />
-        <StatTile icon={AlertTriangle} label="Prioridad alta abiertos" value={tickets.filter((t) => t.priority === "Alta" && t.status !== "Resuelto").length} />
+        <StatTile icon={Wrench} label={t("admin_maint_kpi_open")} value={openCount} />
+        <StatTile icon={CheckCircle2} label={t("admin_maint_kpi_resolved")} value={statusCounts["Resuelto"]} />
+        <StatTile icon={Timer} label={t("admin_maint_kpi_avg_time")} value={avgResolutionHours !== null ? `${avgResolutionHours} h` : "—"} />
+        <StatTile icon={AlertTriangle} label={t("admin_maint_kpi_high")} value={tickets.filter((tk) => tk.priority === "Alta" && tk.status !== "Resuelto").length} />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        <ChartCard title="Por estado" height={200}>
+        <ChartCard title={t("admin_maint_chart_status")} height={200}>
           <PieChart>
             <Pie data={statusData} dataKey="tickets" nameKey="estado" outerRadius={70} label>
-              {statusData.map((d, i) => <Cell key={i} fill={statusFill[d.estado]} />)}
+              {statusData.map((d, i) => <Cell key={i} fill={statusFill[d.rawStatus]} />)}
             </Pie>
             <Tooltip />
             <Legend wrapperStyle={{ fontSize: 11 }} />
           </PieChart>
         </ChartCard>
-        <ChartCard title="Por prioridad" height={200}>
+        <ChartCard title={t("admin_maint_chart_priority")} height={200}>
           <BarChart data={priorityData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
             <XAxis dataKey="prioridad" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <Tooltip />
             <Bar dataKey="tickets" radius={[4, 4, 0, 0]}>
-              {priorityData.map((d, i) => <Cell key={i} fill={priorityFill[d.prioridad]} />)}
+              {priorityData.map((d, i) => <Cell key={i} fill={priorityFill[d.rawPriority]} />)}
             </Bar>
           </BarChart>
         </ChartCard>
       </div>
 
-      <ChartCard title="Tickets creados — últimos 14 días" height={200}>
+      <ChartCard title={t("admin_maint_chart_created")} height={200}>
         <LineChart data={createdData}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="day" tick={{ fontSize: 10 }} />
@@ -3253,9 +3268,9 @@ function MaintenanceStats({ tickets, salones, auditLog }) {
       </ChartCard>
 
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
-        <h4 className="text-sm font-semibold text-stone-700 mb-3">Zonas con más incidencias</h4>
+        <h4 className="text-sm font-semibold text-stone-700 mb-3">{t("admin_maint_chart_locations")}</h4>
         {topLocations.length === 0 ? (
-          <p className="text-sm text-stone-400 italic">Todavía no hay tickets registrados.</p>
+          <p className="text-sm text-stone-400 italic">{t("admin_maint_no_locations")}</p>
         ) : (
           <ResponsiveContainer width="100%" height={Math.max(120, topLocations.length * 40)}>
             <BarChart data={topLocations} layout="vertical" margin={{ left: 10 }}>
@@ -3283,17 +3298,18 @@ function MaintenanceStats({ tickets, salones, auditLog }) {
 const BACKUP_DOWNLOAD_PASSWORD = "22Deabril22!";
 
 function BackupPasswordModal({ onClose, onConfirmed }) {
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
 
   const submit = () => {
     if (value === BACKUP_DOWNLOAD_PASSWORD) onConfirmed();
-    else setError("Contraseña incorrecta.");
+    else setError(t("backup_wrong"));
   };
 
   return (
-    <Modal title="Confirma la contraseña de seguridad" onClose={onClose}>
-      <Field label="Contraseña">
+    <Modal title={t("backup_confirm_title")} onClose={onClose}>
+      <Field label={t("backup_password_label")}>
         <input
           type="password"
           className={inputCls}
@@ -3304,7 +3320,7 @@ function BackupPasswordModal({ onClose, onConfirmed }) {
         />
       </Field>
       {error && <p className="text-xs text-rose-600 mb-3">{error}</p>}
-      <button onClick={submit} className={`w-full py-2.5 ${primaryBtn}`}>Confirmar y descargar</button>
+      <button onClick={submit} className={`w-full py-2.5 ${primaryBtn}`}>{t("backup_confirm_btn")}</button>
     </Modal>
   );
 }
@@ -3314,6 +3330,7 @@ function BackupPasswordModal({ onClose, onConfirmed }) {
 /* ---------------------------------------------------------------------- */
 
 function StaffPanel({ adminEmail }) {
+  const { t, lang } = useTranslation();
   const [staff, setStaff] = useState(null);
   const [staffError, setStaffError] = useState(null);
   const [attendance, setAttendance] = useState(null);
@@ -3337,40 +3354,40 @@ function StaffPanel({ adminEmail }) {
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="font-semibold text-stone-700">Asistencia de hoy</h3>
-          <span className="text-xs text-stone-400">{new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}</span>
+          <h3 className="font-semibold text-stone-700">{t("admin_attendance_today")}</h3>
+          <span className="text-xs text-stone-400 capitalize">{new Date().toLocaleDateString(LOCALE_MAP[lang], { weekday: "long", day: "numeric", month: "long" })}</span>
         </div>
         <p className="text-xs text-stone-500 mb-1">
-          {staff ? `${presentCount} de ${staff.length} personas ya abrieron la app hoy` : "Cargando…"}
+          {staff ? t("admin_attendance_summary").replace("{present}", presentCount).replace("{total}", staff.length) : t("common_loading")}
         </p>
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-stone-700">Personal</h3>
+          <h3 className="font-semibold text-stone-700">{t("admin_staff_title")}</h3>
           <button onClick={load} className="text-xs text-[#6d5c42] font-medium flex items-center gap-1">
-            <RefreshCw size={12} /> Actualizar
+            <RefreshCw size={12} /> {t("admin_refresh")}
           </button>
         </div>
         {staff === null ? (
-          <p className="text-sm text-stone-400 italic">Cargando…</p>
+          <p className="text-sm text-stone-400 italic">{t("common_loading")}</p>
         ) : staffError ? (
           <div className="text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-lg px-3 py-2">
-            <p className="font-medium mb-1">No se pudo cargar el personal.</p>
+            <p className="font-medium mb-1">{t("admin_staff_load_error")}</p>
             <p className="font-mono break-all">{staffError}</p>
-            <p className="mt-2 text-rose-600">Comprueba que ejecutaste <code>supabase-TODO-EN-UNO.sql</code> completo en el SQL Editor de Supabase.</p>
+            <p className="mt-2 text-rose-600">{t("admin_staff_check_sql")} <code>supabase-TODO-EN-UNO.sql</code>.</p>
           </div>
         ) : staff.length === 0 ? (
-          <p className="text-sm text-stone-400 italic">Todavía no hay ninguna cuenta con un rol asignado en la tabla "profiles".</p>
+          <p className="text-sm text-stone-400 italic">{t("admin_staff_no_role")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-left text-stone-400 border-b border-stone-100">
-                  <th className="py-1.5 pr-3 font-medium">Email</th>
-                  <th className="py-1.5 pr-3 font-medium">Rol</th>
-                  <th className="py-1.5 pr-3 font-medium">Hoy</th>
-                  <th className="py-1.5 pr-3 font-medium">Contraseña</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_email")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_role")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_today")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_password")}</th>
                   <th className="py-1.5 font-medium"></th>
                 </tr>
               </thead>
@@ -3380,20 +3397,20 @@ function StaffPanel({ adminEmail }) {
                   return (
                     <tr key={s.id} className="border-b border-stone-50">
                       <td className="py-1.5 pr-3 text-stone-700">{s.email}</td>
-                      <td className="py-1.5 pr-3"><Badge tone="slate">{ROLES[s.role]?.label || s.role}</Badge></td>
+                      <td className="py-1.5 pr-3"><Badge tone="slate">{t("role_" + s.role)}</Badge></td>
                       <td className="py-1.5 pr-3">
                         {seen ? (
-                          <Badge tone="green">Entró {new Date(seen.first_seen_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}</Badge>
+                          <Badge tone="green">{t("admin_entered_at")} {new Date(seen.first_seen_at).toLocaleTimeString(LOCALE_MAP[lang], { hour: "2-digit", minute: "2-digit" })}</Badge>
                         ) : (
-                          <Badge tone="red">Todavía no</Badge>
+                          <Badge tone="red">{t("admin_not_yet")}</Badge>
                         )}
                       </td>
                       <td className="py-1.5 pr-3">
-                        {s.must_change_password ? <Badge tone="yellow">Pendiente de crear</Badge> : <Badge tone="green">Personalizada</Badge>}
+                        {s.must_change_password ? <Badge tone="yellow">{t("admin_password_pending")}</Badge> : <Badge tone="green">{t("admin_password_custom")}</Badge>}
                       </td>
                       <td className="py-1.5">
                         <button onClick={() => setResetTarget({ id: s.id, email: s.email })} className="text-[#6d5c42] font-medium">
-                          Restablecer
+                          {t("admin_reset_btn")}
                         </button>
                       </td>
                     </tr>
@@ -3413,6 +3430,7 @@ function StaffPanel({ adminEmail }) {
 }
 
 function ResetPasswordModal({ target, onClose, onDone }) {
+  const { t } = useTranslation();
   const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -3420,35 +3438,35 @@ function ResetPasswordModal({ target, onClose, onDone }) {
 
   const submit = async () => {
     setError("");
-    if (newPassword.length < 8) { setError("Mínimo 8 caracteres."); return; }
+    if (newPassword.length < 8) { setError(t("admin_reset_min")); return; }
     setLoading(true);
     try {
       await adminResetPassword(target.id, newPassword);
       setDone(true);
       onDone();
     } catch (e) {
-      setError(e.message || "Error al restablecer la contraseña");
+      setError(e.message || t("admin_reset_error"));
     }
     setLoading(false);
   };
 
   return (
-    <Modal title={`Restablecer contraseña — ${target.email}`} onClose={onClose}>
+    <Modal title={t("admin_reset_title").replace("{email}", target.email)} onClose={onClose}>
       {done ? (
         <div>
-          <p className="text-sm text-stone-600 mb-2">Contraseña actualizada. Comunícasela a la persona por un canal seguro (no por email, ya que el envío de correos no está configurado).</p>
+          <p className="text-sm text-stone-600 mb-2">{t("admin_reset_done_msg")}</p>
           <div className="bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm font-mono mb-3">{newPassword}</div>
-          <p className="text-xs text-stone-400 mb-4">Se le pedirá crear su propia contraseña en cuanto inicie sesión con esta.</p>
-          <button onClick={onClose} className={`w-full py-2.5 ${primaryBtn}`}>Cerrar</button>
+          <p className="text-xs text-stone-400 mb-4">{t("admin_reset_done_hint")}</p>
+          <button onClick={onClose} className={`w-full py-2.5 ${primaryBtn}`}>{t("admin_reset_close")}</button>
         </div>
       ) : (
         <div>
-          <Field label="Nueva contraseña temporal">
-            <input className={inputCls} type="text" maxLength={60} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Mínimo 8 caracteres" />
+          <Field label={t("admin_reset_new_label")}>
+            <input className={inputCls} type="text" maxLength={60} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t("admin_reset_min")} />
           </Field>
           {error && <p className="text-xs text-rose-600 mb-3">{error}</p>}
           <button onClick={submit} disabled={loading} className={`w-full py-2.5 ${primaryBtn} disabled:opacity-60`}>
-            {loading ? "Restableciendo…" : "Restablecer contraseña"}
+            {loading ? t("admin_reset_working") : t("admin_reset_submit")}
           </button>
         </div>
       )}
@@ -3471,6 +3489,7 @@ function paidTotal(record) {
 }
 
 function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
+  const { t } = useTranslation();
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [rangeMonths, setRangeMonths] = useState(6);
 
@@ -3531,7 +3550,7 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
   const expenseByCategory = {};
   EXPENSE_CATEGORIES.forEach((c) => (expenseByCategory[c] = 0));
   expenses.forEach((e) => { expenseByCategory[e.category] = (expenseByCategory[e.category] || 0) + (Number(e.amount) || 0); });
-  const expenseCategoryData = EXPENSE_CATEGORIES.map((c) => ({ categoria: c, gasto: Math.round(expenseByCategory[c] * 100) / 100 })).filter((d) => d.gasto > 0);
+  const expenseCategoryData = EXPENSE_CATEGORIES.map((c) => ({ categoria: t("ec_" + c), gasto: Math.round(expenseByCategory[c] * 100) / 100 })).filter((d) => d.gasto > 0);
 
   const addExpense = async (expense) => {
     await persistExpenses([{ ...expense, id: uid(), registeredBy: email }, ...expenses]);
@@ -3544,34 +3563,34 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h3 className="text-sm font-semibold text-stone-700">Sostenibilidad económica del complejo</h3>
+        <h3 className="text-sm font-semibold text-stone-700">{t("admin_finance_title")}</h3>
         <select value={rangeMonths} onChange={(e) => setRangeMonths(Number(e.target.value))} className={inputCls + " w-auto"}>
-          <option value={6}>Últimos 6 meses</option>
-          <option value={12}>Últimos 12 meses</option>
-          <option value={24}>Últimos 24 meses</option>
+          <option value={6}>{t("admin_finance_range6")}</option>
+          <option value={12}>{t("admin_finance_range12")}</option>
+          <option value={24}>{t("admin_finance_range24")}</option>
         </select>
       </div>
 
       {/* KPIs generales */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile icon={TrendingUp} label="Ingresos este mes" value={`${((thisMonth?.Hospedaje || 0) + (thisMonth?.Restaurante || 0)).toFixed(2)} €`} />
-        <StatTile icon={BarChart3} label="Gastos este mes" value={`${(thisMonth?.Gastos || 0).toFixed(2)} €`} />
-        <StatTile icon={Award} label="Balance neto (histórico)" value={`${netTotal.toFixed(2)} €`} />
-        <StatTile icon={Timer} label="Margen bruto (histórico)" value={`${grossMargin.toFixed(1)} %`} />
+        <StatTile icon={TrendingUp} label={t("admin_kpi_income_month")} value={`${((thisMonth?.Hospedaje || 0) + (thisMonth?.Restaurante || 0)).toFixed(2)} €`} />
+        <StatTile icon={BarChart3} label={t("admin_kpi_expenses_month")} value={`${(thisMonth?.Gastos || 0).toFixed(2)} €`} />
+        <StatTile icon={Award} label={t("admin_kpi_net_total")} value={`${netTotal.toFixed(2)} €`} />
+        <StatTile icon={Timer} label={t("admin_kpi_margin")} value={`${grossMargin.toFixed(1)} %`} />
       </div>
 
       {/* KPIs hoteleros */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile icon={BedDouble} label="ADR — tarifa media/noche" value={`${(thisMonth?.ADR || 0).toFixed(2)} €`} />
-        <StatTile icon={BarChart3} label="RevPAR — ingreso por unidad disponible" value={`${(thisMonth?.RevPAR || 0).toFixed(2)} €`} />
-        <StatTile icon={UtensilsCrossed} label="Ratio gastos/ingresos (este mes)" value={`${(thisMonth?.RatioGastos || 0).toFixed(1)} %`} />
-        <StatTile icon={Users} label="Ingreso medio por reserva" value={`${avgStayValue.toFixed(2)} € / ${avgBookingValue.toFixed(2)} €`} />
+        <StatTile icon={BedDouble} label={t("admin_kpi_adr")} value={`${(thisMonth?.ADR || 0).toFixed(2)} €`} />
+        <StatTile icon={BarChart3} label={t("admin_kpi_revpar")} value={`${(thisMonth?.RevPAR || 0).toFixed(2)} €`} />
+        <StatTile icon={UtensilsCrossed} label={t("admin_kpi_expense_ratio")} value={`${(thisMonth?.RatioGastos || 0).toFixed(1)} %`} />
+        <StatTile icon={Users} label={t("admin_kpi_avg_booking")} value={`${avgStayValue.toFixed(2)} € / ${avgBookingValue.toFixed(2)} €`} />
       </div>
       <p className="text-[11px] text-stone-400 -mt-2">
-        ADR = ingresos de hospedaje ÷ noches vendidas · RevPAR = ingresos de hospedaje ÷ (unidades totales × días del mes) · Ingreso medio: hospedaje / restaurante
+        {t("admin_adr_formula")}
       </p>
 
-      <ChartCard title={`Ingresos, gastos y balance neto — últimos ${rangeMonths} meses`} height={240}>
+      <ChartCard title={t("admin_finance_range_prefix").replace("{n}", rangeMonths)} height={240}>
         <BarChart data={incomeByMonth}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="month" tick={{ fontSize: 11 }} />
@@ -3585,7 +3604,7 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
       </ChartCard>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        <ChartCard title="Mix de ingresos: Hospedaje vs. Restaurante" height={210}>
+        <ChartCard title={t("admin_chart_mix")} height={210}>
           <PieChart>
             <Pie data={revenueMixData} dataKey="value" nameKey="name" outerRadius={70} label={(d) => `${d.name}: ${((d.value / (totalIncome || 1)) * 100).toFixed(0)}%`}>
               <Cell fill={CHART_GREEN} />
@@ -3596,18 +3615,18 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
           </PieChart>
         </ChartCard>
 
-        <ChartCard title="Ratio gastos/ingresos por mes (%)" height={210}>
+        <ChartCard title={t("admin_chart_ratio")} height={210}>
           <LineChart data={incomeByMonth}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
             <XAxis dataKey="month" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} unit="%" />
             <Tooltip formatter={(v) => `${v} %`} />
-            <Line type="monotone" dataKey="RatioGastos" stroke={CHART_ROSE} strokeWidth={2} dot={{ r: 3 }} name="Gastos / Ingresos" />
+            <Line type="monotone" dataKey="RatioGastos" stroke={CHART_ROSE} strokeWidth={2} dot={{ r: 3 }} />
           </LineChart>
         </ChartCard>
       </div>
 
-      <ChartCard title="Evolución de ADR y RevPAR" height={220}>
+      <ChartCard title={t("admin_chart_adr_revpar")} height={220}>
         <LineChart data={incomeByMonth}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
           <XAxis dataKey="month" tick={{ fontSize: 11 }} />
@@ -3620,7 +3639,7 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
       </ChartCard>
 
       {expenseCategoryData.length > 0 && (
-        <ChartCard title="Gastos por categoría (histórico)" height={200}>
+        <ChartCard title={t("admin_chart_expense_cat")} height={200}>
           <BarChart data={expenseCategoryData} layout="vertical" margin={{ left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
             <XAxis type="number" tick={{ fontSize: 11 }} />
@@ -3633,22 +3652,22 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
 
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
         <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-semibold text-stone-700">Gastos registrados (mercadería, personal extra, etc.)</h4>
+          <h4 className="text-sm font-semibold text-stone-700">{t("admin_expenses_title")}</h4>
           <button onClick={() => setShowExpenseForm(true)} className={`flex items-center gap-1.5 text-xs px-3 py-1.5 ${primaryBtn}`}>
-            <Plus size={13} /> Nuevo gasto
+            <Plus size={13} /> {t("admin_new_expense")}
           </button>
         </div>
         {recentExpenses.length === 0 ? (
-          <p className="text-sm text-stone-400 italic">Todavía no hay gastos registrados.</p>
+          <p className="text-sm text-stone-400 italic">{t("admin_no_expenses")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-left text-stone-400 border-b border-stone-100">
-                  <th className="py-1.5 pr-3 font-medium">Fecha</th>
-                  <th className="py-1.5 pr-3 font-medium">Categoría</th>
-                  <th className="py-1.5 pr-3 font-medium">Descripción</th>
-                  <th className="py-1.5 pr-3 font-medium">Importe</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_date")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_category")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_description")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_amount")}</th>
                   <th className="py-1.5 font-medium"></th>
                 </tr>
               </thead>
@@ -3656,10 +3675,10 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
                 {recentExpenses.map((e) => (
                   <tr key={e.id} className="border-b border-stone-50">
                     <td className="py-1.5 pr-3 text-stone-400 whitespace-nowrap">{e.date}</td>
-                    <td className="py-1.5 pr-3"><Badge tone="slate">{e.category}</Badge></td>
+                    <td className="py-1.5 pr-3"><Badge tone="slate">{t("ec_" + e.category)}</Badge></td>
                     <td className="py-1.5 pr-3 text-stone-600">{e.description}</td>
                     <td className="py-1.5 pr-3 text-stone-800 font-medium whitespace-nowrap">{Number(e.amount).toFixed(2)} €</td>
-                    <td className="py-1.5"><button onClick={() => removeExpense(e.id)} className="text-rose-600 font-medium">Eliminar</button></td>
+                    <td className="py-1.5"><button onClick={() => removeExpense(e.id)} className="text-rose-600 font-medium">{t("common_delete")}</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -3674,24 +3693,25 @@ function FinanceModule({ stays, bookings, expenses, persistExpenses, email }) {
 }
 
 function ExpenseModal({ onClose, onSave }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({ date: todayStr(), category: EXPENSE_CATEGORIES[0], description: "", amount: 0 });
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
-    <Modal title="Nuevo gasto" onClose={onClose}>
-      <Field label="Fecha">
+    <Modal title={t("admin_new_expense_title")} onClose={onClose}>
+      <Field label={t("admin_col_date")}>
         <input type="date" className={inputCls} value={form.date} onChange={(e) => set("date", e.target.value)} />
       </Field>
-      <Field label="Categoría">
+      <Field label={t("admin_expense_category_label")}>
         <select className={inputCls} value={form.category} onChange={(e) => set("category", e.target.value)}>
-          {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+          {EXPENSE_CATEGORIES.map((c) => <option key={c} value={c}>{t("ec_" + c)}</option>)}
         </select>
       </Field>
-      <Field label="Descripción">
-        <input className={inputCls} maxLength={200} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="p. ej. Compra de vino, refuerzo de camareros boda García" />
+      <Field label={t("admin_expense_desc_label")}>
+        <input className={inputCls} maxLength={200} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder={t("admin_expense_desc_ph")} />
       </Field>
-      <MoneyField label="Importe" value={form.amount} onChange={(v) => set("amount", v)} />
-      <button onClick={() => form.description && form.amount > 0 && onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>Guardar gasto</button>
+      <MoneyField label={t("admin_col_amount")} value={form.amount} onChange={(v) => set("amount", v)} />
+      <button onClick={() => form.description && form.amount > 0 && onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>{t("admin_expense_save")}</button>
     </Modal>
   );
 }
@@ -3792,10 +3812,10 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
             <div>
               <Badge tone={hotelStatus.closed ? "red" : "green"}>{hotelStatus.closed ? t("hotel_closed") : t("hotel_open")}</Badge>
               {hotelStatus.closed && hotelStatus.closedAt && (
-                <p className="text-xs text-stone-400 mt-1">Cerrado el {new Date(hotelStatus.closedAt).toLocaleString()} por {hotelStatus.closedBy}</p>
+                <p className="text-xs text-stone-400 mt-1">{t("admin_closed_by").replace("{date}", new Date(hotelStatus.closedAt).toLocaleString()).replace("{who}", hotelStatus.closedBy)}</p>
               )}
               {!hotelStatus.closed && hotelStatus.reopenedAt && (
-                <p className="text-xs text-stone-400 mt-1">Reabierto el {new Date(hotelStatus.reopenedAt).toLocaleString()} por {hotelStatus.reopenedBy}</p>
+                <p className="text-xs text-stone-400 mt-1">{t("admin_reopened_by").replace("{date}", new Date(hotelStatus.reopenedAt).toLocaleString()).replace("{who}", hotelStatus.reopenedBy)}</p>
               )}
             </div>
             <div className="flex gap-2">
@@ -3824,10 +3844,10 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
             disabled={backupState === "working"}
             className={`text-xs font-medium px-3 py-2 rounded-lg ${primaryBtn} disabled:opacity-60`}
           >
-            {backupState === "working" ? "Preparando…" : t("backup_button")}
+            {backupState === "working" ? t("backup_preparing") : t("backup_button")}
           </button>
-          {backupState === "done" && <span className="ml-2 text-xs text-emerald-700">Descargada ✓</span>}
-          {backupState === "error" && <span className="ml-2 text-xs text-rose-600">Hubo un error, inténtalo de nuevo</span>}
+          {backupState === "done" && <span className="ml-2 text-xs text-emerald-700">{t("backup_downloaded")}</span>}
+          {backupState === "error" && <span className="ml-2 text-xs text-rose-600">{t("backup_error")}</span>}
           {showBackupAuth && (
             <BackupPasswordModal
               onClose={() => setShowBackupAuth(false)}
@@ -3847,21 +3867,21 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
 
       {subtab === "actividad" && (
       <div className="bg-white rounded-2xl border border-stone-200 p-4">
-        <h3 className="font-semibold text-stone-700 mb-3">Registro de actividad</h3>
+        <h3 className="font-semibold text-stone-700 mb-3">{t("admin_activity_title")}</h3>
         {log === null ? (
-          <p className="text-sm text-stone-400 italic">Cargando…</p>
+          <p className="text-sm text-stone-400 italic">{t("admin_activity_loading")}</p>
         ) : log.length === 0 ? (
-          <p className="text-sm text-stone-400 italic">Todavía no hay actividad registrada.</p>
+          <p className="text-sm text-stone-400 italic">{t("admin_activity_none")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-left text-stone-400 border-b border-stone-100">
-                  <th className="py-1.5 pr-3 font-medium">Fecha</th>
-                  <th className="py-1.5 pr-3 font-medium">Empleado</th>
-                  <th className="py-1.5 pr-3 font-medium">Rol</th>
-                  <th className="py-1.5 pr-3 font-medium">Módulo</th>
-                  <th className="py-1.5 font-medium">Acción</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_date_full")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_employee")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_role")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_module")}</th>
+                  <th className="py-1.5 font-medium">{t("admin_col_action")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -3869,7 +3889,7 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
                   <tr key={row.id} className="border-b border-stone-50">
                     <td className="py-1.5 pr-3 text-stone-400 whitespace-nowrap">{new Date(row.created_at).toLocaleString()}</td>
                     <td className="py-1.5 pr-3 text-stone-700">{row.user_email}</td>
-                    <td className="py-1.5 pr-3"><Badge tone="slate">{ROLES[row.role]?.label || row.role || "—"}</Badge></td>
+                    <td className="py-1.5 pr-3"><Badge tone="slate">{row.role ? t("role_" + row.role) : "—"}</Badge></td>
                     <td className="py-1.5 pr-3 text-stone-600">{row.module}</td>
                     <td className="py-1.5 text-stone-700">{row.action}</td>
                   </tr>
@@ -3884,21 +3904,21 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
       {confirming === "close" && (
         <Modal title={t("close_hotel_btn")} onClose={() => setConfirming(null)}>
           <p className="text-sm text-stone-600 mb-3">
-            Esto cancelará automáticamente las <strong>{activeStaysCount}</strong> reservas de alojamiento actuales o futuras que no estén ya canceladas, y bloqueará la creación de nuevas reservas de hospedaje y restaurante para el resto del personal hasta que vuelvas a abrir el hotel.
+            {t("admin_close_confirm_desc").replace("{n}", activeStaysCount)}
           </p>
-          <p className="text-xs text-rose-600 mb-4">Esta acción no se puede deshacer automáticamente: si reabres después, esas reservas seguirán canceladas y habría que volver a crearlas si correspondiera.</p>
+          <p className="text-xs text-rose-600 mb-4">{t("admin_close_confirm_warn")}</p>
           <div className="flex gap-2">
-            <button onClick={closeHotel} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-rose-600 hover:bg-rose-700 text-white">Sí, cerrar el hotel</button>
-            <button onClick={() => setConfirming(null)} className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-300 text-stone-600">Cancelar</button>
+            <button onClick={closeHotel} className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-rose-600 hover:bg-rose-700 text-white">{t("admin_close_confirm_yes")}</button>
+            <button onClick={() => setConfirming(null)} className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-300 text-stone-600">{t("admin_confirm_cancel")}</button>
           </div>
         </Modal>
       )}
       {confirming === "open" && (
         <Modal title={t("open_hotel_btn")} onClose={() => setConfirming(null)}>
-          <p className="text-sm text-stone-600 mb-4">Esto permitirá de nuevo crear reservas de alojamiento y restaurante para todo el personal.</p>
+          <p className="text-sm text-stone-600 mb-4">{t("admin_open_confirm_desc")}</p>
           <div className="flex gap-2">
-            <button onClick={openHotel} className={`flex-1 py-2.5 rounded-xl text-sm font-medium ${primaryBtn}`}>Sí, abrir el hotel</button>
-            <button onClick={() => setConfirming(null)} className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-300 text-stone-600">Cancelar</button>
+            <button onClick={openHotel} className={`flex-1 py-2.5 rounded-xl text-sm font-medium ${primaryBtn}`}>{t("admin_open_confirm_yes")}</button>
+            <button onClick={() => setConfirming(null)} className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-300 text-stone-600">{t("admin_confirm_cancel")}</button>
           </div>
         </Modal>
       )}
