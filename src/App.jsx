@@ -866,6 +866,36 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [pendingDrafts, setPendingDrafts] = useState([]);
+
+  const scanDrafts = () => {
+    try {
+      const found = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("masboronat-draft-stay-")) {
+          try { found.push({ key: k, data: JSON.parse(localStorage.getItem(k)) }); } catch (e) { /* noop */ }
+        }
+      }
+      setPendingDrafts(found);
+    } catch (e) { /* noop */ }
+  };
+  useEffect(() => { scanDrafts(); }, []); // eslint-disable-line
+
+  const resumeDraft = (draft) => {
+    const idPart = draft.key.replace("masboronat-draft-stay-", "");
+    if (idPart.startsWith("new-")) {
+      setNewStayFor(idPart.replace("new-", ""));
+    } else {
+      const existing = stays.find((s) => s.id === idPart);
+      setEditingStay(existing || null);
+      if (!existing) setNewStayFor(draft.data.roomId);
+    }
+  };
+  const discardDraft = (key) => {
+    try { localStorage.removeItem(key); } catch (e) { /* noop */ }
+    setPendingDrafts((d) => d.filter((x) => x.key !== key));
+  };
 
   const roomsById = Object.fromEntries(rooms.map((r) => [r.id, r]));
 
@@ -876,6 +906,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     await persistStays(next);
     setNewStayFor(null);
     setEditingStay(null);
+    scanDrafts();
   };
   const remove = async (id) => { await persistStays(stays.filter((s) => s.id !== id)); };
   const saveGroup = async (newStays) => {
@@ -986,6 +1017,22 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
 
   return (
     <div className={selectedIds.size > 0 ? "pb-16" : ""}>
+      {pendingDrafts.length > 0 && (
+        <div className="mb-3 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
+          <p className="text-xs font-medium text-blue-800">
+            {pendingDrafts.length === 1 ? "Tienes una reserva sin terminar de guardar" : `Tienes ${pendingDrafts.length} reservas sin terminar de guardar`} (probablemente por haber cambiado de pestaña del navegador). ¿Quieres continuar donde lo dejaste?
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {pendingDrafts.map((d) => (
+              <div key={d.key} className="flex items-center gap-1.5 bg-white border border-blue-200 rounded-lg px-2 py-1 text-xs">
+                <span className="text-stone-700">{d.data.guestName || "Sin nombre"} · {d.data.checkIn}</span>
+                <button onClick={() => resumeDraft(d)} className="text-blue-700 font-medium">Continuar</button>
+                <button onClick={() => discardDraft(d.key)} className="text-stone-400 font-medium">Descartar</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">{t("guests_title")}</h2>
@@ -1172,7 +1219,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
           room={newStayFor ? roomsById[newStayFor] : roomsById[editingStay.roomId]}
           stay={editingStay}
           otherStays={stays.filter((s) => s.roomId === (newStayFor || editingStay.roomId) && s.id !== editingStay?.id)}
-          onClose={() => { setNewStayFor(null); setEditingStay(null); }}
+          onClose={() => { setNewStayFor(null); setEditingStay(null); scanDrafts(); }}
           onSave={upsert}
         />
       )}
@@ -2684,8 +2731,9 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
                 </div>
                 {g.rooms.map((r) => {
                   const roomStays = staysForRoom(r.id);
+                  const isDropTarget = dragging && dragging.targetRoomId === r.id && dragging.targetRoomId !== dragging.originRoomId;
                   return (
-                    <div key={r.id} className="flex border-b border-stone-100">
+                    <div key={r.id} data-room-id={r.id} className={`flex border-b border-stone-100 ${isDropTarget ? "bg-[#ab9574]/15" : ""}`}>
                       <div
                         style={{ width: GANTT_ROOM_COL, borderLeft: `4px solid ${g.color}` }}
                         className="shrink-0 sticky left-0 z-10 bg-white px-2.5 py-2 flex items-center gap-2"
@@ -2713,28 +2761,41 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
                                 if (!canDrag) return;
                                 e.currentTarget.setPointerCapture(e.pointerId);
                                 dragMovedRef.current = false;
-                                setDragging({ stayId: s.id, startX: e.clientX, deltaDays: 0 });
+                                setDragging({ stayId: s.id, startX: e.clientX, deltaDays: 0, originRoomId: r.id, targetRoomId: r.id });
                               }}
                               onPointerMove={(e) => {
                                 if (!isDraggingThis) return;
                                 const deltaX = e.clientX - dragging.startX;
                                 const deltaDays = Math.round(deltaX / GANTT_DAY_WIDTH);
-                                if (deltaDays !== dragging.deltaDays) {
-                                  if (deltaDays !== 0) dragMovedRef.current = true;
-                                  setDragging((d) => ({ ...d, deltaDays }));
+                                const elUnder = document.elementFromPoint(e.clientX, e.clientY);
+                                const rowEl = elUnder ? elUnder.closest("[data-room-id]") : null;
+                                const targetRoomId = rowEl ? rowEl.getAttribute("data-room-id") : dragging.targetRoomId;
+                                if (deltaDays !== dragging.deltaDays || targetRoomId !== dragging.targetRoomId) {
+                                  if (deltaDays !== 0 || targetRoomId !== dragging.originRoomId) dragMovedRef.current = true;
+                                  setDragging((d) => ({ ...d, deltaDays, targetRoomId, cursorX: e.clientX, cursorY: e.clientY }));
+                                } else {
+                                  setDragging((d) => ({ ...d, cursorX: e.clientX, cursorY: e.clientY }));
                                 }
                               }}
                               onPointerUp={() => {
                                 if (!isDraggingThis) return;
                                 const dd = dragging.deltaDays;
+                                const targetRoomId = dragging.targetRoomId;
+                                const changesRoom = targetRoomId && targetRoomId !== dragging.originRoomId;
                                 setDragging(null);
-                                if (dd !== 0 && persistStays) {
+                                if ((dd !== 0 || changesRoom) && persistStays) {
                                   const newCheckIn = addDays(s.checkIn, dd);
                                   const newCheckOut = addDays(s.checkOut, dd);
-                                  persistStays(stays.map((st) => (st.id === s.id ? { ...st, checkIn: newCheckIn, checkOut: newCheckOut } : st)));
+                                  const targetRoom = changesRoom ? rooms.find((rm) => rm.id === targetRoomId) : null;
+                                  persistStays(stays.map((st) => (st.id === s.id ? {
+                                    ...st,
+                                    checkIn: newCheckIn,
+                                    checkOut: newCheckOut,
+                                    ...(targetRoom ? { roomId: targetRoom.id, roomLabel: unitLabel(targetRoom) } : {}),
+                                  } : st)));
                                 }
                               }}
-                              title={canDrag ? `${s.guestName || "Sin nombre"} · ${s.checkIn} → ${s.checkOut} · arrastra para mover` : `${s.guestName || "Sin nombre"} · ${s.checkIn} → ${s.checkOut}`}
+                              title={canDrag ? `${s.guestName || "Sin nombre"} · ${s.checkIn} → ${s.checkOut} · arrastra para mover a otra fecha o unidad` : `${s.guestName || "Sin nombre"} · ${s.checkIn} → ${s.checkOut}`}
                               style={{
                                 left: startOffset * GANTT_DAY_WIDTH + 2,
                                 width: widthDays * GANTT_DAY_WIDTH - 4,
@@ -2765,6 +2826,15 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
           </div>
         </div>
       </div>
+
+      {dragging && dragging.targetRoomId && dragging.targetRoomId !== dragging.originRoomId && dragging.cursorX != null && (
+        <div
+          className="fixed z-50 pointer-events-none bg-[#332b1f] text-white text-xs font-medium px-2.5 py-1.5 rounded-lg shadow-lg"
+          style={{ left: dragging.cursorX + 14, top: dragging.cursorY + 14 }}
+        >
+          → Se moverá a {unitLabel(rooms.find((r) => r.id === dragging.targetRoomId) || {})}
+        </div>
+      )}
 
       {activeStay && (
         <Modal title={unitLabel(rooms.find((r) => r.id === activeStay.roomId) || {})} onClose={() => setActiveStay(null)}>
