@@ -394,9 +394,15 @@ export default function MasBoronatOps() {
     setSyncing(false);
   }, []);
 
+  const initialLoadDoneRef = useRef(false);
   useEffect(() => {
     if (!session || !profile) return;
-    refreshAll(true);
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      refreshAll(true);
+    } else {
+      refreshAll(false);
+    }
     const iv = setInterval(() => refreshAll(false), 2500);
     const onVisible = () => { if (document.visibilityState === "visible") refreshAll(false); };
     document.addEventListener("visibilitychange", onVisible);
@@ -406,7 +412,11 @@ export default function MasBoronatOps() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [refreshAll, session, profile]);
+    // Ojo: dependemos del id de usuario y del rol (valores estables), NO del objeto
+    // "session" completo — Supabase genera una referencia nueva de "session" cada vez
+    // que renueva el token en segundo plano (por ejemplo al volver a la pestaña del
+    // navegador), y eso NO debe disparar una recarga "desde cero".
+  }, [refreshAll, session?.user?.id, profile?.role]);
 
   const role = profile?.role;
   const cfg = role ? ROLES[role] : null;
@@ -847,6 +857,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("Todos");
   const [statusFilter, setStatusFilter] = useState("Activas");
+  const [groupFilter, setGroupFilter] = useState("Todas");
   const [sortBy, setSortBy] = useState("checkIn");
   const [sortDir, setSortDir] = useState("asc");
   const [newStayFor, setNewStayFor] = useState(null); // roomId
@@ -888,6 +899,8 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
       const timing = s.status === "Cancelada" ? "Cancelada" : stayTiming(s);
       if (statusFilter !== timing) return false;
     }
+    if (groupFilter === "__grouped__" && !s.groupId) return false;
+    if (groupFilter !== "Todas" && groupFilter !== "__grouped__" && s.groupId !== groupFilter) return false;
     if (query) {
       const q = query.toLowerCase();
       const matchesGuest = (s.guestName || "").toLowerCase().includes(q);
@@ -896,6 +909,18 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     }
     return true;
   });
+
+  // Lista de grupos existentes, para poder elegir uno concreto y filtrar/editar solo ese
+  const groupOptions = [];
+  const seenGroupIds = new Set();
+  rows.forEach((s) => {
+    if (s.groupId && !seenGroupIds.has(s.groupId)) {
+      seenGroupIds.add(s.groupId);
+      const count = rows.filter((x) => x.groupId === s.groupId).length;
+      groupOptions.push({ id: s.groupId, label: `${s.guestName || "Sin nombre"} · ${count} unidades · ${s.checkIn}` });
+    }
+  });
+  groupOptions.sort((a, b) => a.label.localeCompare(b.label));
 
   const sortValue = (s) => {
     switch (sortBy) {
@@ -1004,6 +1029,12 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
           <option value="En curso">En curso</option>
           <option value="Finalizada">Finalizadas</option>
           <option value="Cancelada">Canceladas</option>
+        </select>
+        <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} className={inputCls + " w-auto"}>
+          <option value="Todas">Todas las reservas</option>
+          <option value="__grouped__">Solo agrupadas ({groupOptions.reduce((n, g) => n + 1, 0) > 0 ? rows.filter((s) => s.groupId).length : 0})</option>
+          {groupOptions.length > 0 && <option disabled>──────────</option>}
+          {groupOptions.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
         </select>
       </div>
 
