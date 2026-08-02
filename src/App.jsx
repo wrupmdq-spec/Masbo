@@ -10,7 +10,7 @@ import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
-import { loadShared, saveShared, supabase, getProfile, logAction, fetchAuditLog, fetchFullBackup, fetchStaffDirectory, adminResetPassword, recordDailyLogin, fetchDailyLogins } from "./supabaseClient";
+import { loadShared, saveShared, supabase, getProfile, logAction, fetchAuditLog, requestBackup, fetchStaffDirectory, adminResetPassword, recordDailyLogin, fetchDailyLogins } from "./supabaseClient";
 import Login from "./Login";
 import SetPassword from "./SetPassword";
 import { useTranslation, LANGUAGES, LOCALE_MAP } from "./i18n.jsx";
@@ -142,6 +142,7 @@ function seedRooms() {
     capacity: u.capacity,
     cleaningStatus: "Limpia",
     cleaningNotes: "",
+    processedCheckouts: [],
   }));
 }
 
@@ -425,13 +426,13 @@ export default function MasBoronatOps() {
     if (cfg && !cfg.tabs.includes(tab)) setTab(cfg.tabs[0]);
   }, [cfg]); // eslint-disable-line
 
-  const persistRooms = async (next) => {
+  const persistRooms = async (next, actionOverride) => {
     setRooms(next);
     await saveShared(KEYS.rooms, next);
-    logAction({ email: session.user.email, role, module: "Limpieza / Alojamientos", action: "Actualizó el estado de una unidad" });
+    logAction({ email: session.user.email, role, module: "Limpieza / Alojamientos", action: actionOverride || "Actualizó el estado de una unidad" });
   };
-  const persistStays = async (next) => {
-    const action = summarizeChange(stays, next, "reserva de alojamiento");
+  const persistStays = async (next, actionOverride) => {
+    const action = actionOverride || summarizeChange(stays, next, "reserva de alojamiento");
     setStays(next);
     await saveShared(KEYS.stays, next);
     logAction({ email: session.user.email, role, module: "Hospedaje", action });
@@ -499,6 +500,31 @@ export default function MasBoronatOps() {
     persistEvents(updatedEvents);
     persistSalones(updatedSalones, `Finalizó automáticamente ${toFinalize.length} evento(s) y marcó su(s) espacio(s) como sucio(s)`);
   }, [events, salones, role]); // eslint-disable-line
+
+  // Al pasar la fecha de salida de una estancia, marca la unidad como "Sucia"
+  // automáticamente, para que Limpieza sepa que hay que revisarla sin que
+  // Recepción tenga que acordarse de marcarlo a mano. No repite el aviso si
+  // esa estancia ya se procesó antes (se guarda en processedCheckouts).
+  useEffect(() => {
+    if (!stays || !rooms) return;
+    if (role !== "admin" && role !== "reception") return;
+    const today = todayStr();
+    let changedCount = 0;
+    const updatedRooms = rooms.map((r) => {
+      const finished = stays.filter(
+        (s) => s.roomId === r.id && s.status !== "Cancelada" && s.checkOut < today && !(r.processedCheckouts || []).includes(s.id)
+      );
+      if (finished.length === 0) return r;
+      changedCount++;
+      return {
+        ...r,
+        cleaningStatus: "Sucia",
+        processedCheckouts: [...(r.processedCheckouts || []), ...finished.map((s) => s.id)],
+      };
+    });
+    if (changedCount === 0) return;
+    persistRooms(updatedRooms, `Marcó automáticamente ${changedCount} unidad(es) como sucias tras el check-out`);
+  }, [stays, rooms, role]); // eslint-disable-line
 
   // Alerta con sonido: avisa a Limpieza/Mantenimiento en cuanto aparece una tarea nueva en su sección
   const prevPendingRef = useRef(null);
@@ -916,7 +942,7 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
 
   // Edición directa de una celda: guarda al instante, sin abrir ningún formulario
   const updateField = (stayId, field, value) => {
-    persistStays(stays.map((s) => (s.id === stayId ? { ...s, [field]: value } : s)));
+    persistStays(stays.map((s) => (s.id === stayId ? { ...s, [field]: value, ...(field === "checkOut" ? { checkoutProcessed: false } : {}) } : s)));
   };
 
   // --- Filtro, búsqueda y orden, como en una hoja de cálculo ---
@@ -1503,7 +1529,7 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
   };
   const handleSave = () => {
     try { localStorage.removeItem(draftKey); } catch (e) { /* noop */ }
-    onSave(form);
+    onSave({ ...form, checkoutProcessed: false });
   };
 
   const conflicts = otherStays.filter(
@@ -3291,20 +3317,22 @@ function MaintenanceStats({ tickets, salones, auditLog }) {
 /* Contraseña extra para proteger la descarga de la copia de seguridad      */
 /* ---------------------------------------------------------------------- */
 
-// Nota: esto es una barrera adicional de fricción, no una medida criptográfica
-// fuerte — vive en el código que llega al navegador. Protege bien de un clic
-// accidental o de un dispositivo compartido; no de alguien con conocimientos
-// técnicos que inspeccione el código fuente.
-const BACKUP_DOWNLOAD_PASSWORD = "22Deabril22!";
-
-function BackupPasswordModal({ onClose, onConfirmed }) {
+function BackupPasswordModal({ onClose, onSubmitPassword }) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const submit = () => {
-    if (value === BACKUP_DOWNLOAD_PASSWORD) onConfirmed();
-    else setError(t("backup_wrong"));
+  const submit = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      await onSubmitPassword(value);
+      onClose();
+    } catch (e) {
+      setError(e.message || t("backup_wrong"));
+    }
+    setLoading(false);
   };
 
   return (
@@ -3320,7 +3348,9 @@ function BackupPasswordModal({ onClose, onConfirmed }) {
         />
       </Field>
       {error && <p className="text-xs text-rose-600 mb-3">{error}</p>}
-      <button onClick={submit} className={`w-full py-2.5 ${primaryBtn}`}>{t("backup_confirm_btn")}</button>
+      <button onClick={submit} disabled={loading} className={`w-full py-2.5 ${primaryBtn} disabled:opacity-60`}>
+        {loading ? t("backup_preparing") : t("backup_confirm_btn")}
+      </button>
     </Modal>
   );
 }
@@ -3749,10 +3779,10 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
     return () => clearInterval(iv);
   }, [loadLog]);
 
-  const downloadBackup = async () => {
+  const downloadBackup = async (password) => {
     setBackupState("working");
     try {
-      const backup = await fetchFullBackup();
+      const backup = await requestBackup(password); // si la contraseña es incorrecta, lanza un error aquí
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -3763,10 +3793,9 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
       a.remove();
       URL.revokeObjectURL(url);
       setBackupState("done");
-      logAction({ email, role: "admin", module: "Sistema", action: "Descargó una copia de seguridad" });
     } catch (e) {
-      console.error(e);
-      setBackupState("error");
+      setBackupState("idle");
+      throw e; // el modal muestra el mensaje concreto (p. ej. "Contraseña incorrecta")
     }
   };
 
@@ -3851,7 +3880,7 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
           {showBackupAuth && (
             <BackupPasswordModal
               onClose={() => setShowBackupAuth(false)}
-              onConfirmed={() => { setShowBackupAuth(false); downloadBackup(); }}
+              onSubmitPassword={(password) => downloadBackup(password)}
             />
           )}
         </div>
