@@ -1426,17 +1426,47 @@ function GroupBookingModal({ rooms, onClose, onSave }) {
 
 function StayModal({ room, stay, otherStays, onClose, onSave }) {
   const { t } = useTranslation();
-  const [form, setForm] = useState(
-    stay || { roomId: room.id, roomLabel: unitLabel(room), guestName: "", checkIn: todayStr(), checkOut: todayStr(), numGuests: 1, mealPlan: "Ninguno", status: "Confirmada", amountPaidBefore: 0, amountPaidAfter: 0 }
-  );
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const draftKey = `masboronat-draft-stay-${stay ? stay.id : "new-" + room.id}`;
+  const defaultForm = stay || { roomId: room.id, roomLabel: unitLabel(room), guestName: "", checkIn: todayStr(), checkOut: todayStr(), numGuests: 1, mealPlan: "Ninguno", status: "Confirmada", amountPaidBefore: 0, amountPaidAfter: 0 };
+  const [form, setForm] = useState(() => {
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (saved) return JSON.parse(saved);
+    } catch (e) { /* noop */ }
+    return defaultForm;
+  });
+  const [recoveredDraft] = useState(() => {
+    try { return !!localStorage.getItem(draftKey); } catch (e) { return false; }
+  });
+
+  const set = (k, v) => {
+    setForm((f) => {
+      const next = { ...f, [k]: v };
+      try { localStorage.setItem(draftKey, JSON.stringify(next)); } catch (e) { /* noop */ }
+      return next;
+    });
+  };
+
+  const handleClose = () => {
+    try { localStorage.removeItem(draftKey); } catch (e) { /* noop */ }
+    onClose();
+  };
+  const handleSave = () => {
+    try { localStorage.removeItem(draftKey); } catch (e) { /* noop */ }
+    onSave(form);
+  };
 
   const conflicts = otherStays.filter(
     (s) => s.status !== "Cancelada" && form.checkIn && form.checkOut && rangesOverlap(form.checkIn, form.checkOut, s.checkIn, s.checkOut)
   );
 
   return (
-    <Modal title={`${unitLabel(room)} · ${t("field_capacity")} ${room.capacity} pers.`} onClose={onClose}>
+    <Modal title={`${unitLabel(room)} · ${t("field_capacity")} ${room.capacity} pers.`} onClose={handleClose}>
+      {recoveredDraft && (
+        <div className="mb-3 text-xs bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-3 py-2">
+          Recuperamos un borrador que no habías guardado. Revísalo antes de continuar.
+        </div>
+      )}
       <Field label={t("common_guest_name")}>
         <input className={inputCls} maxLength={120} value={form.guestName} onChange={(e) => set("guestName", e.target.value)} />
       </Field>
@@ -1482,7 +1512,7 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
           ))}
         </div>
       </Field>
-      <button onClick={() => onSave(form)} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>{t("common_save_reservation")}</button>
+      <button onClick={handleSave} className={`w-full mt-2 py-2.5 ${primaryBtn}`}>{t("common_save_reservation")}</button>
     </Modal>
   );
 }
