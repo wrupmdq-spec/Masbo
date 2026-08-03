@@ -114,18 +114,25 @@ export async function fetchAuditLog(limit = 200) {
 /* Copia de seguridad manual (exporta todo a un archivo descargable)        */
 /* ---------------------------------------------------------------------- */
 
-export async function fetchFullBackup() {
-  const [kvRes, logRes] = await Promise.all([
-    supabase.from("hotelops_kv").select("*"),
-    supabase.from("audit_log").select("*").order("created_at", { ascending: false }),
-  ]);
-  if (kvRes.error) throw kvRes.error;
-  if (logRes.error) throw logRes.error;
-  return {
-    exportedAt: new Date().toISOString(),
-    data: kvRes.data,
-    auditLog: logRes.data,
-  };
+// Pide la copia de seguridad al servidor, que comprueba allí mismo la contraseña
+// (nunca viaja al navegador) y solo entrega los datos si es correcta y quien
+// pregunta es administrador.
+export async function requestBackup(password) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new Error("Sesión no válida");
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/download-backup`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ password }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || "No se pudo descargar la copia de seguridad");
+  return json;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -190,4 +197,178 @@ export async function fetchDailyLogins(dateStr) {
     console.error("Error leyendo asistencia", e);
     return { items: [], error: String(e) };
   }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Tablas reales — una fila por registro (sustituye al sistema de bloques)  */
+/* ---------------------------------------------------------------------- */
+
+async function fetchTable(table, fromDb, orderBy) {
+  let query = supabase.from(table).select("*");
+  if (orderBy) query = query.order(orderBy);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map(fromDb);
+}
+
+async function syncTable(table, prevArr, nextArr, toDb, idKey = "id") {
+  const prevById = Object.fromEntries((prevArr || []).map((r) => [r[idKey], r]));
+  const nextIds = new Set((nextArr || []).map((r) => r[idKey]));
+  const toUpsert = (nextArr || []).filter((r) => JSON.stringify(r) !== JSON.stringify(prevById[r[idKey]]));
+  const toDelete = (prevArr || []).filter((r) => !nextIds.has(r[idKey]));
+
+  if (toUpsert.length > 0) {
+    const { error } = await supabase.from(table).upsert(toUpsert.map(toDb));
+    if (error) throw error;
+  }
+  if (toDelete.length > 0) {
+    const { error } = await supabase.from(table).delete().in(idKey, toDelete.map((r) => r[idKey]));
+    if (error) throw error;
+  }
+}
+
+function uidShort() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+const roomToDb = (r) => ({
+  id: r.id, type: r.type, number: r.number, capacity: r.capacity,
+  cleaning_status: r.cleaningStatus, cleaning_notes: r.cleaningNotes,
+  processed_checkouts: r.processedCheckouts || [],
+});
+const roomFromDb = (row) => ({
+  id: row.id, type: row.type, number: row.number, capacity: row.capacity,
+  cleaningStatus: row.cleaning_status, cleaningNotes: row.cleaning_notes,
+  processedCheckouts: row.processed_checkouts || [],
+});
+export const fetchRooms = () => fetchTable("rooms", roomFromDb);
+export const syncRooms = (prev, next) => syncTable("rooms", prev, next, roomToDb);
+
+const guestFromDb = (row) => ({
+  id: row.id, fullName: row.full_name, email: row.email, phone: row.phone,
+  notes: row.notes, createdAt: row.created_at,
+});
+export const fetchGuests = () => fetchTable("guests", guestFromDb);
+
+export async function resolveGuestId(guestName) {
+  const name = (guestName || "").trim();
+  if (!name) return null;
+  const { data: existing } = await supabase
+    .from("guests").select("id").ilike("full_name", name).limit(1).maybeSingle();
+  if (existing) return existing.id;
+  const id = "g-" + uidShort();
+  const { error } = await supabase.from("guests").insert({ id, full_name: name });
+  if (error) {
+    const { data: retry } = await supabase.from("guests").select("id").ilike("full_name", name).limit(1).maybeSingle();
+    if (retry) return retry.id;
+    console.error("Error creando huésped", error);
+    return null;
+  }
+  return id;
+}
+
+export async function fetchGuestById(id) {
+  const { data, error } = await supabase.from("guests").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data ? guestFromDb(data) : null;
+}
+
+export async function saveGuestNotes(guestId, notes) {
+  const { error } = await supabase.from("guests").update({ notes }).eq("id", guestId);
+  if (error) throw error;
+}
+
+const stayToDb = (s) => ({
+  id: s.id, room_id: s.roomId, guest_id: s.guestId || null, guest_name: s.guestName || "",
+  check_in: s.checkIn, check_out: s.checkOut, num_guests: s.numGuests, meal_plan: s.mealPlan,
+  status: s.status, amount_paid_before: s.amountPaidBefore || 0, amount_paid_after: s.amountPaidAfter || 0,
+  group_id: s.groupId || null, checkout_processed: !!s.checkoutProcessed,
+});
+const stayFromDb = (row) => ({
+  id: row.id, roomId: row.room_id, guestId: row.guest_id, guestName: row.guest_name,
+  checkIn: row.check_in, checkOut: row.check_out, numGuests: row.num_guests, mealPlan: row.meal_plan,
+  status: row.status, amountPaidBefore: Number(row.amount_paid_before) || 0, amountPaidAfter: Number(row.amount_paid_after) || 0,
+  groupId: row.group_id, checkoutProcessed: row.checkout_processed,
+});
+export const fetchStays = () => fetchTable("stays", stayFromDb);
+export const syncStays = (prev, next) => syncTable("stays", prev, next, stayToDb);
+
+const bookingToDb = (b) => ({
+  id: b.id, stay_id: b.stayId || null, guest_id: b.guestId || null, date: b.date, time_slot: b.timeSlot,
+  time: b.time, client_type: b.clientType, room_label: b.roomLabel, guest_name: b.guestName || "",
+  num_people: b.numPeople, contact: b.contact, menu_notes: b.menuNotes, allergens: b.allergens,
+  notes: b.notes, amount_paid_before: b.amountPaidBefore || 0, amount_paid_after: b.amountPaidAfter || 0,
+});
+const bookingFromDb = (row) => ({
+  id: row.id, stayId: row.stay_id, guestId: row.guest_id, date: row.date, timeSlot: row.time_slot,
+  time: row.time, clientType: row.client_type, roomLabel: row.room_label, guestName: row.guest_name,
+  numPeople: row.num_people, contact: row.contact, menuNotes: row.menu_notes, allergens: row.allergens,
+  notes: row.notes, amountPaidBefore: Number(row.amount_paid_before) || 0, amountPaidAfter: Number(row.amount_paid_after) || 0,
+});
+export const fetchBookings = () => fetchTable("bookings", bookingFromDb);
+export const syncBookings = (prev, next) => syncTable("bookings", prev, next, bookingToDb);
+
+const ticketToDb = (t) => ({
+  id: t.id, location: t.location, issue: t.issue, priority: t.priority, status: t.status,
+  assigned_to: t.assignedTo, ticket_timestamp: t.timestamp, resolved_at: t.resolvedAt || null,
+});
+const ticketFromDb = (row) => ({
+  id: row.id, location: row.location, issue: row.issue, priority: row.priority, status: row.status,
+  assignedTo: row.assigned_to, timestamp: row.ticket_timestamp, resolvedAt: row.resolved_at,
+});
+export const fetchTickets = () => fetchTable("tickets", ticketFromDb);
+export const syncTickets = (prev, next) => syncTable("tickets", prev, next, ticketToDb);
+
+const eventToDb = (e) => ({
+  id: e.id, title: e.title, event_type: e.eventType, date: e.date, start_time: e.startTime,
+  end_time: e.endTime || null, space: e.space, expected_guests: e.expectedGuests ? Number(e.expectedGuests) : null,
+  responsible: e.responsible, status: e.status, menu_notes: e.menuNotes, allergens: e.allergens, notes: e.notes,
+});
+const eventFromDb = (row) => ({
+  id: row.id, title: row.title, eventType: row.event_type, date: row.date, startTime: row.start_time,
+  endTime: row.end_time, space: row.space, expectedGuests: row.expected_guests, responsible: row.responsible,
+  status: row.status, menuNotes: row.menu_notes, allergens: row.allergens, notes: row.notes,
+});
+export const fetchEvents = () => fetchTable("events", eventFromDb);
+export const syncEvents = (prev, next) => syncTable("events", prev, next, eventToDb);
+
+const salonToDb = (s) => ({
+  id: s.id, name: s.name, category: s.category, color: s.color,
+  cleaning_status: s.cleaningStatus, cleaning_notes: s.cleaningNotes,
+  processed_event_ids: s.processedEventIds || [],
+});
+const salonFromDb = (row) => ({
+  id: row.id, name: row.name, category: row.category, color: row.color,
+  cleaningStatus: row.cleaning_status, cleaningNotes: row.cleaning_notes,
+  processedEventIds: row.processed_event_ids || [],
+});
+export const fetchSalones = () => fetchTable("salones", salonFromDb);
+export const syncSalones = (prev, next) => syncTable("salones", prev, next, salonToDb);
+
+const expenseToDb = (e) => ({
+  id: e.id, date: e.date, category: e.category, description: e.description,
+  amount: e.amount || 0, registered_by: e.registeredBy,
+});
+const expenseFromDb = (row) => ({
+  id: row.id, date: row.date, category: row.category, description: row.description,
+  amount: Number(row.amount) || 0, registeredBy: row.registered_by,
+});
+export const fetchExpenses = () => fetchTable("expenses", expenseFromDb);
+export const syncExpenses = (prev, next) => syncTable("expenses", prev, next, expenseToDb);
+
+export async function fetchHotelStatus() {
+  const { data, error } = await supabase.from("hotel_status").select("*").eq("id", 1).maybeSingle();
+  if (error) throw error;
+  if (!data) return { closed: false };
+  return {
+    closed: data.closed, closedAt: data.closed_at, closedBy: data.closed_by,
+    reopenedAt: data.reopened_at, reopenedBy: data.reopened_by,
+  };
+}
+export async function saveHotelStatus(status) {
+  const { error } = await supabase.from("hotel_status").update({
+    closed: status.closed, closed_at: status.closedAt || null, closed_by: status.closedBy || null,
+    reopened_at: status.reopenedAt || null, reopened_by: status.reopenedBy || null,
+  }).eq("id", 1);
+  if (error) throw error;
 }

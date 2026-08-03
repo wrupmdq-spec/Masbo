@@ -10,7 +10,14 @@ import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
-import { loadShared, saveShared, supabase, getProfile, logAction, fetchAuditLog, requestBackup, fetchStaffDirectory, adminResetPassword, recordDailyLogin, fetchDailyLogins } from "./supabaseClient";
+import {
+  supabase, getProfile, logAction, fetchAuditLog, requestBackup, fetchStaffDirectory, adminResetPassword,
+  recordDailyLogin, fetchDailyLogins,
+  fetchRooms, syncRooms, fetchStays, syncStays, fetchBookings, syncBookings,
+  fetchTickets, syncTickets, fetchEvents, syncEvents, fetchSalones, syncSalones,
+  fetchExpenses, syncExpenses, fetchHotelStatus, saveHotelStatus,
+  fetchGuests, resolveGuestId, saveGuestNotes, fetchGuestById,
+} from "./supabaseClient";
 import Login from "./Login";
 import SetPassword from "./SetPassword";
 import { useTranslation, LANGUAGES, LOCALE_MAP } from "./i18n.jsx";
@@ -346,44 +353,29 @@ export default function MasBoronatOps() {
     setSyncing(true);
     try {
       const [r, st, b, t, ev, hs, sal, exp] = await Promise.all([
-        loadShared(KEYS.rooms, null),
-        loadShared(KEYS.stays, null),
-        loadShared(KEYS.bookings, null),
-        loadShared(KEYS.tickets, null),
-        loadShared(KEYS.events, null),
-        loadShared(KEYS.hotelStatus, null),
-        loadShared(KEYS.salones, null),
-        loadShared(KEYS.expenses, null),
+        fetchRooms(), fetchStays(), fetchBookings(), fetchTickets(),
+        fetchEvents(), fetchHotelStatus(), fetchSalones(), fetchExpenses(),
       ]);
-      if (initial) {
-        const seededRooms = r || seedRooms();
-        const seededSalones = sal || seedSalones();
-        setRooms(seededRooms);
-        setStays(st || []);
-        setBookings(b || []);
-        setTickets(t || []);
-        setEvents(ev || []);
-        setHotelStatus(hs || { closed: false });
-        setSalones(seededSalones);
-        setExpenses(exp || []);
-        if (!r) await saveShared(KEYS.rooms, seededRooms);
-        if (!st) await saveShared(KEYS.stays, []);
-        if (!b) await saveShared(KEYS.bookings, []);
-        if (!t) await saveShared(KEYS.tickets, []);
-        if (!ev) await saveShared(KEYS.events, []);
-        if (!hs) await saveShared(KEYS.hotelStatus, { closed: false });
-        if (!sal) await saveShared(KEYS.salones, seededSalones);
-        if (!exp) await saveShared(KEYS.expenses, []);
-      } else {
-        if (r) setRooms(r);
-        if (st) setStays(st);
-        if (b) setBookings(b);
-        if (t) setTickets(t);
-        if (ev) setEvents(ev);
-        if (hs) setHotelStatus(hs);
-        if (sal) setSalones(sal);
-        if (exp) setExpenses(exp);
+      let finalRooms = r;
+      let finalSalones = sal;
+      // Red de seguridad: si por lo que sea las tablas están vacías la primera
+      // vez (proyecto nuevo, o antes de ejecutar la migración de datos), las siembra.
+      if (initial && r.length === 0) {
+        finalRooms = seedRooms();
+        await syncRooms([], finalRooms);
       }
+      if (initial && sal.length === 0) {
+        finalSalones = seedSalones();
+        await syncSalones([], finalSalones);
+      }
+      setRooms(finalRooms);
+      setStays(st);
+      setBookings(b);
+      setTickets(t);
+      setEvents(ev);
+      setHotelStatus(hs);
+      setSalones(finalSalones);
+      setExpenses(exp);
       failCountRef.current = 0;
       setConnectionIssue(false);
       setLastSync(new Date());
@@ -427,37 +419,45 @@ export default function MasBoronatOps() {
   }, [cfg]); // eslint-disable-line
 
   const persistRooms = async (next, actionOverride) => {
+    await syncRooms(rooms, next);
     setRooms(next);
-    await saveShared(KEYS.rooms, next);
     logAction({ email: session.user.email, role, module: "Limpieza / Alojamientos", action: actionOverride || "Actualizó el estado de una unidad" });
   };
   const persistStays = async (next, actionOverride) => {
     const action = actionOverride || summarizeChange(stays, next, "reserva de alojamiento");
-    setStays(next);
-    await saveShared(KEYS.stays, next);
+    // Vincula cada estancia con su perfil de huésped (lo crea si es la primera vez que viene)
+    const withGuestIds = await Promise.all(
+      next.map(async (s) => {
+        if (s.guestId || !s.guestName) return s;
+        const guestId = await resolveGuestId(s.guestName);
+        return guestId ? { ...s, guestId } : s;
+      })
+    );
+    await syncStays(stays, withGuestIds);
+    setStays(withGuestIds);
     logAction({ email: session.user.email, role, module: "Hospedaje", action });
   };
   const persistBookings = async (next) => {
     const action = summarizeChange(bookings, next, "reserva de restaurante");
+    await syncBookings(bookings, next);
     setBookings(next);
-    await saveShared(KEYS.bookings, next);
     logAction({ email: session.user.email, role, module: "Restaurante", action });
   };
   const persistTickets = async (next) => {
     const action = summarizeChange(tickets, next, "ticket de mantenimiento");
+    await syncTickets(tickets, next);
     setTickets(next);
-    await saveShared(KEYS.tickets, next);
     logAction({ email: session.user.email, role, module: "Mantenimiento", action });
   };
   const persistEvents = async (next) => {
     const action = summarizeChange(events, next, "evento");
+    await syncEvents(events, next);
     setEvents(next);
-    await saveShared(KEYS.events, next);
     logAction({ email: session.user.email, role, module: "Eventos", action });
   };
   const persistHotelStatus = async (next, action) => {
+    await saveHotelStatus(next);
     setHotelStatus(next);
-    await saveShared(KEYS.hotelStatus, next);
     logAction({ email: session.user.email, role, module: "Sistema", action });
   };
   const persistSalones = async (next, actionOverride) => {
@@ -472,14 +472,14 @@ export default function MasBoronatOps() {
     const hasInterior = changedItems.some((s) => s.category === "Salones");
     const module = hasExterior && !hasInterior ? "Mantenimiento / Espacios Exteriores" : "Limpieza / Salones";
     const action = actionOverride || summarizeChange(salones, next, "salón/espacio");
+    await syncSalones(salones, next);
     setSalones(next);
-    await saveShared(KEYS.salones, next);
     logAction({ email: session.user.email, role, module, action });
   };
   const persistExpenses = async (next) => {
     const action = summarizeChange(expenses, next, "gasto");
+    await syncExpenses(expenses, next);
     setExpenses(next);
-    await saveShared(KEYS.expenses, next);
     logAction({ email: session.user.email, role, module: "Finanzas", action });
   };
 
@@ -893,6 +893,16 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [pendingDrafts, setPendingDrafts] = useState([]);
+  const [profileGuest, setProfileGuest] = useState(null); // { id, name } | null
+
+  // Cuenta cuántas veces se ha alojado cada huésped, para detectar visitas repetidas
+  const visitKey = (s) => s.guestId || (s.guestName || "").trim().toLowerCase();
+  const visitCounts = {};
+  stays.forEach((s) => {
+    const k = visitKey(s);
+    if (!k) return;
+    visitCounts[k] = (visitCounts[k] || 0) + 1;
+  });
 
   const scanDrafts = () => {
     try {
@@ -1149,13 +1159,24 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
                       {s.groupId && <span className="ml-1"><Badge tone="purple">{t("guests_group_badge")}</Badge></span>}
                     </td>
                     <td className="py-1 px-2 min-w-[140px]">
-                      {editable ? (
-                        <input
-                          defaultValue={s.guestName}
-                          onBlur={(e) => e.target.value !== s.guestName && updateField(s.id, "guestName", e.target.value)}
-                          className="w-full bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none"
-                        />
-                      ) : (s.guestName || "—")}
+                      <div className="flex items-center gap-1">
+                        {editable ? (
+                          <input
+                            defaultValue={s.guestName}
+                            onBlur={(e) => e.target.value !== s.guestName && updateField(s.id, "guestName", e.target.value)}
+                            className="w-full bg-transparent border border-transparent hover:border-stone-200 focus:border-[#ab9574] rounded px-1 py-0.5 focus:outline-none"
+                          />
+                        ) : (s.guestName || "—")}
+                        {visitCounts[visitKey(s)] > 1 && (
+                          <button
+                            onClick={() => setProfileGuest({ id: s.guestId, name: s.guestName })}
+                            title={`Ya se ha alojado ${visitCounts[visitKey(s)]} veces — ver historial`}
+                            className="shrink-0 text-[10px] font-semibold text-[#806c4d] bg-[#ab9574]/15 rounded-full px-1.5 py-0.5"
+                          >
+                            ×{visitCounts[visitKey(s)]}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="py-1 px-2">
                       {editable ? (
@@ -1267,7 +1288,75 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
       {showBulkEdit && (
         <GroupEditModal stays={selectedStays} onClose={() => setShowBulkEdit(false)} onSave={saveBulkEdit} />
       )}
+
+      {profileGuest && (
+        <GuestProfileModal
+          guest={profileGuest}
+          stays={stays.filter((s) => visitKey(s) === (profileGuest.id || (profileGuest.name || "").trim().toLowerCase()))}
+          onClose={() => setProfileGuest(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function GuestProfileModal({ guest, stays, onClose }) {
+  const [notes, setNotes] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!guest.id) { setLoading(false); return; }
+    fetchGuestById(guest.id).then((g) => { if (active) { setNotes(g?.notes || ""); setLoading(false); } });
+    return () => { active = false; };
+  }, [guest.id]);
+
+  const save = async () => {
+    if (!guest.id) return;
+    setSaving(true);
+    await saveGuestNotes(guest.id, notes);
+    setSaving(false);
+    onClose();
+  };
+
+  const sorted = [...stays].sort((a, b) => b.checkIn.localeCompare(a.checkIn));
+
+  return (
+    <Modal title={`Perfil de huésped — ${guest.name || "Sin nombre"}`} onClose={onClose}>
+      <p className="text-xs text-stone-500 mb-3">
+        {stays.length} estancia{stays.length !== 1 ? "s" : ""} registrada{stays.length !== 1 ? "s" : ""} en total.
+      </p>
+      <div className="mb-4 max-h-48 overflow-y-auto space-y-1.5">
+        {sorted.map((s) => (
+          <div key={s.id} className="text-xs border border-stone-100 rounded-lg px-2.5 py-1.5 flex items-center justify-between">
+            <span className="text-stone-700 font-medium">{s.roomLabel || s.roomId}</span>
+            <span className="text-stone-400">{s.checkIn} → {s.checkOut}</span>
+            <Badge tone={s.status === "Cancelada" ? "red" : "slate"}>{s.status === "Cancelada" ? "Cancelada" : stayTiming(s)}</Badge>
+          </div>
+        ))}
+      </div>
+      {guest.id ? (
+        <>
+          <Field label="Notas y preferencias (visible para todo el equipo)">
+            <textarea
+              className={inputCls}
+              rows={4}
+              maxLength={1000}
+              value={loading ? "" : notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={loading ? "Cargando…" : "p. ej. prefiere piso alto, alérgico a frutos secos, cliente habitual de calçotada…"}
+              disabled={loading}
+            />
+          </Field>
+          <button onClick={save} disabled={saving || loading} className={`w-full mt-1 py-2.5 ${primaryBtn} disabled:opacity-60`}>
+            {saving ? "Guardando…" : "Guardar notas"}
+          </button>
+        </>
+      ) : (
+        <p className="text-xs text-stone-400 italic">Este huésped todavía no tiene perfil vinculado (se creará automáticamente la próxima vez que se guarde una reserva suya).</p>
+      )}
+    </Modal>
   );
 }
 
