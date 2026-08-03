@@ -16,7 +16,7 @@ import {
   fetchRooms, syncRooms, fetchStays, syncStays, fetchBookings, syncBookings,
   fetchTickets, syncTickets, fetchEvents, syncEvents, fetchSalones, syncSalones,
   fetchExpenses, syncExpenses, fetchHotelStatus, saveHotelStatus,
-  fetchGuests, resolveGuestId, saveGuestNotes, fetchGuestById,
+  fetchGuests, resolveGuestId, saveGuestNotes, fetchGuestById, askAssistant,
 } from "./supabaseClient";
 import Login from "./Login";
 import SetPassword from "./SetPassword";
@@ -107,6 +107,13 @@ const ROLES = {
     label: "Personal de Mantenimiento",
     tabs: ["maintenance", "planning"],
     edit: ["maintenance"],
+  },
+  viewer: {
+    label: "Espectador",
+    // Ve las mismas pestañas operativas que Recepción, pero nunca el panel de Administrador
+    // (ahí vive información sensible: finanzas, personal, contraseñas).
+    tabs: ["dashboard", "guests", "restaurant", "housekeeping", "maintenance", "events", "planning", "planningGeneral"],
+    edit: [], // no puede editar nada en ningún módulo
   },
 };
 
@@ -248,6 +255,128 @@ function eventStatusTone(s) {
   return "slate";
 }
 
+// Convierte las reservas de grupo (varias unidades, mismo huésped) en tarjetas de
+// "evento" de solo lectura, para que aparezcan automáticamente en Eventos sin que
+// nadie tenga que cargarlas dos veces a mano. Solo las actuales o futuras.
+function groupStaysToPseudoEvents(stays) {
+  const groups = {};
+  stays.forEach((s) => {
+    if (!s.groupId || s.status === "Cancelada") return;
+    (groups[s.groupId] = groups[s.groupId] || []).push(s);
+  });
+  const today = todayStr();
+  return Object.entries(groups)
+    .map(([groupId, groupStays]) => {
+      const checkIns = groupStays.map((s) => s.checkIn).sort();
+      const checkOuts = groupStays.map((s) => s.checkOut).sort();
+      return {
+        id: "group-" + groupId,
+        isGroupBooking: true,
+        title: groupStays[0].guestName || "Grupo sin nombre",
+        date: checkIns[0],
+        endDate: checkOuts[checkOuts.length - 1],
+        units: groupStays.map((s) => s.roomLabel).filter(Boolean),
+        totalGuests: groupStays.reduce((sum, s) => sum + (Number(s.numGuests) || 0), 0),
+      };
+    })
+    .filter((g) => g.endDate >= today);
+}
+
+// Recorta los datos de la app a un resumen compacto y relevante para el asistente
+// (solo lo de hoy/mañana/próximos días — nunca todo el histórico).
+function buildAssistantContext({ rooms, stays, bookings, tickets, events }) {
+  const today = todayStr();
+  const tomorrow = addDays(today, 1);
+  const weekAhead = addDays(today, 7);
+  const activeStays = stays.filter((s) => s.status !== "Cancelada");
+  return {
+    fechaHoy: today,
+    unidadesSuciasOInspeccion: rooms.filter((r) => r.cleaningStatus !== "Limpia").map((r) => `${unitLabel(r)} (${r.cleaningStatus})`),
+    llegadasHoy: activeStays.filter((s) => s.checkIn === today).map((s) => ({ huesped: s.guestName, unidad: s.roomLabel, personas: s.numGuests })),
+    salidasHoy: activeStays.filter((s) => s.checkOut === today).map((s) => ({ huesped: s.guestName, unidad: s.roomLabel })),
+    llegadasManana: activeStays.filter((s) => s.checkIn === tomorrow).map((s) => ({ huesped: s.guestName, unidad: s.roomLabel, personas: s.numGuests })),
+    reservasRestauranteHoy: bookings.filter((b) => b.date === today).map((b) => ({ hora: b.time, turno: b.timeSlot, huesped: b.guestName, personas: b.numPeople })),
+    ticketsMantenimientoAbiertos: tickets.filter((t) => t.status !== "Resuelto").map((t) => ({ ubicacion: t.location, problema: t.issue, prioridad: t.priority, estado: t.status })),
+    eventosProximos7Dias: events.filter((e) => e.date >= today && e.date <= weekAhead && e.status !== "Cancelado").map((e) => ({ titulo: e.title, fecha: e.date, espacio: e.space })),
+  };
+}
+
+function AssistantWidget({ rooms, stays, bookings, tickets, events, onAction }) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([]); // { role, text, action }
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput("");
+    setMessages((m) => [...m, { role: "user", text }]);
+    setLoading(true);
+    try {
+      const context = buildAssistantContext({ rooms, stays, bookings, tickets, events });
+      const history = messages.slice(-6).map((m) => ({ role: m.role, content: m.text }));
+      const res = await askAssistant(text, context, history);
+      setMessages((m) => [...m, { role: "assistant", text: res.reply, action: res.action }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: "assistant", text: "Hubo un error al preguntar: " + e.message }]);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="fixed bottom-4 right-4 z-40 w-14 h-14 rounded-full bg-[#806c4d] hover:bg-[#6d5c42] text-white shadow-lg flex items-center justify-center"
+        title="Asistente virtual"
+      >
+        <Sparkles size={22} />
+      </button>
+
+      {open && (
+        <div className="fixed bottom-24 right-4 z-40 w-[calc(100vw-2rem)] sm:w-96 max-h-[70vh] bg-white rounded-2xl shadow-2xl border border-stone-200 flex flex-col overflow-hidden">
+          <div className="bg-[#332b1f] text-white px-4 py-3 flex items-center justify-between shrink-0">
+            <span className="font-semibold text-sm flex items-center gap-1.5"><Sparkles size={14} /> Asistente Mas Boronat</span>
+            <button onClick={() => setOpen(false)}><X size={16} /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-2 text-sm">
+            {messages.length === 0 && (
+              <p className="text-stone-400 text-xs italic">
+                Pregúntame cosas como "¿cuántas unidades están sucias?", "¿quién llega mañana?", o pídeme "crea un ticket: aire acondicionado roto en Flandes 3".
+              </p>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={`rounded-xl px-3 py-2 max-w-[88%] ${m.role === "user" ? "bg-[#ab9574]/20 ml-auto" : "bg-stone-100"}`}>
+                <div className="whitespace-pre-wrap">{m.text}</div>
+                {m.action && (m.action.type === "create_ticket" || m.action.type === "create_booking") && (
+                  <button
+                    onClick={() => { onAction(m.action); setOpen(false); }}
+                    className="mt-2 text-xs font-medium text-white bg-[#806c4d] hover:bg-[#6d5c42] rounded-lg px-2.5 py-1.5"
+                  >
+                    Abrir formulario prellenado →
+                  </button>
+                )}
+              </div>
+            ))}
+            {loading && <div className="text-stone-400 text-xs italic">Pensando…</div>}
+          </div>
+          <div className="p-2 border-t border-stone-200 flex gap-2 shrink-0">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              placeholder="Escribe tu pregunta…"
+              className="flex-1 text-sm rounded-lg border border-stone-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#ab9574]"
+            />
+            <button onClick={send} disabled={loading} className={`px-3 py-2 text-sm ${primaryBtn} disabled:opacity-50`}>Enviar</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-50 bg-stone-900/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -323,6 +452,7 @@ export default function MasBoronatOps() {
   const [syncing, setSyncing] = useState(false);
   const [connectionIssue, setConnectionIssue] = useState(false);
   const [alertToast, setAlertToast] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null); // { type, fields } | null
   const failCountRef = useRef(0);
 
   // Sesión de autenticación
@@ -669,7 +799,13 @@ export default function MasBoronatOps() {
         )}
         {cfg.tabs.includes("restaurant") && (
           <div className={tab === "restaurant" ? "" : "hidden"}>
-            <RestaurantModule stays={stays} bookings={bookings} persistBookings={persistBookings} editable={canEdit("restaurant")} deletable={canDelete(role, "restaurant")} hotelClosed={hotelStatus.closed && role !== "admin"} />
+            <RestaurantModule
+              stays={stays} bookings={bookings} persistBookings={persistBookings}
+              editable={canEdit("restaurant")} deletable={canDelete(role, "restaurant")}
+              hotelClosed={hotelStatus.closed && role !== "admin"}
+              prefillBooking={pendingAction?.type === "create_booking" ? pendingAction.fields : null}
+              onPrefillConsumed={() => setPendingAction(null)}
+            />
           </div>
         )}
         {cfg.tabs.includes("housekeeping") && (
@@ -679,12 +815,17 @@ export default function MasBoronatOps() {
         )}
         {cfg.tabs.includes("maintenance") && (
           <div className={tab === "maintenance" ? "" : "hidden"}>
-            <MaintenanceModule tickets={tickets} persistTickets={persistTickets} rooms={rooms} salones={salones} persistSalones={persistSalones} editable={canEdit("maintenance")} deletable={canDelete(role, "maintenance")} />
+            <MaintenanceModule
+              tickets={tickets} persistTickets={persistTickets} rooms={rooms} salones={salones} persistSalones={persistSalones}
+              editable={canEdit("maintenance")} deletable={canDelete(role, "maintenance")}
+              prefillTicket={pendingAction?.type === "create_ticket" ? pendingAction.fields : null}
+              onPrefillConsumed={() => setPendingAction(null)}
+            />
           </div>
         )}
         {cfg.tabs.includes("events") && (
           <div className={tab === "events" ? "" : "hidden"}>
-            <EventsModule events={events} persistEvents={persistEvents} editable={canEdit("events")} deletable={canDelete(role, "events")} />
+            <EventsModule events={events} persistEvents={persistEvents} stays={stays} editable={canEdit("events")} deletable={canDelete(role, "events")} />
           </div>
         )}
         {cfg.tabs.includes("planning") && (
@@ -694,7 +835,7 @@ export default function MasBoronatOps() {
         )}
         {cfg.tabs.includes("planningGeneral") && (
           <div className={tab === "planningGeneral" ? "" : "hidden"}>
-            <PlanningGeneralModule rooms={rooms} stays={stays} persistStays={persistStays} />
+            <PlanningGeneralModule rooms={rooms} stays={stays} persistStays={persistStays} editable={role === "admin" || role === "reception"} />
           </div>
         )}
         {role === "admin" && (
@@ -703,6 +844,17 @@ export default function MasBoronatOps() {
           </div>
         )}
       </main>
+
+      {(role === "admin" || role === "reception") && (
+        <AssistantWidget
+          rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} events={events}
+          onAction={(action) => {
+            setPendingAction(action);
+            if (action.type === "create_ticket") setTab("maintenance");
+            if (action.type === "create_booking") setTab("restaurant");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -864,18 +1016,23 @@ function Dashboard({ rooms, stays, bookings, tickets, events, setTab }) {
         </div>
         <div className="bg-white rounded-2xl border border-stone-200 p-4">
           <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2"><CalendarDays size={16} className="text-violet-500" /> {t("dash_upcoming_events")}</h3>
-          {events.filter((e) => e.date >= today && e.status !== "Cancelado").length === 0 ? (
-            <p className="text-sm text-stone-400">{t("dash_no_upcoming")}</p>
-          ) : (
-            <ul className="space-y-2">
-              {events.filter((e) => e.date >= today && e.status !== "Cancelado").sort((a,b)=>a.date.localeCompare(b.date)).slice(0,6).map((e) => (
-                <li key={e.id} className="text-sm flex items-center justify-between">
-                  <span className="text-stone-700">{e.title} · {e.date}</span>
-                  <Badge tone="slate">{e.space}</Badge>
-                </li>
-              ))}
-            </ul>
-          )}
+          {(() => {
+            const upcoming = [...events.filter((e) => e.date >= today && e.status !== "Cancelado"), ...groupStaysToPseudoEvents(stays)]
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .slice(0, 6);
+            return upcoming.length === 0 ? (
+              <p className="text-sm text-stone-400">{t("dash_no_upcoming")}</p>
+            ) : (
+              <ul className="space-y-2">
+                {upcoming.map((e) => (
+                  <li key={e.id} className="text-sm flex items-center justify-between">
+                    <span className="text-stone-700">{e.title} · {e.date}</span>
+                    <Badge tone={e.isGroupBooking ? "purple" : "slate"}>{e.isGroupBooking ? "Grupo" : e.space}</Badge>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -1798,12 +1955,16 @@ function openPrintableDaySheet(dateStr, bookings) {
   win.onload = () => win.print();
 }
 
-function RestaurantModule({ stays, bookings, persistBookings, editable, deletable, hotelClosed }) {
+function RestaurantModule({ stays, bookings, persistBookings, editable, deletable, hotelClosed, prefillBooking, onPrefillConsumed }) {
 
   const { t } = useTranslation();
   const [date, setDate] = useState(todayStr());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+
+  useEffect(() => {
+    if (prefillBooking) setShowForm(true);
+  }, [prefillBooking]);
 
   const dayBookings = bookings.filter((b) => b.date === date);
 
@@ -1899,18 +2060,26 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
       </div>
 
       {(showForm || editingBooking) && (
-        <BookingModal stays={stays} date={date} booking={editingBooking} onClose={() => { setShowForm(false); setEditingId(null); }} onSave={upsert} />
+        <BookingModal
+          stays={stays}
+          date={date}
+          booking={editingBooking}
+          initial={prefillBooking}
+          onClose={() => { setShowForm(false); setEditingId(null); onPrefillConsumed && onPrefillConsumed(); }}
+          onSave={(b) => { upsert(b); onPrefillConsumed && onPrefillConsumed(); }}
+        />
       )}
     </div>
   );
 }
 
-function BookingModal({ stays, date, booking, onClose, onSave }) {
+function BookingModal({ stays, date, booking, onClose, onSave, initial }) {
   const [form, setForm] = useState(
     booking || {
       date, timeSlot: "Desayuno", time: "08:00", clientType: "Huésped del Resort",
       stayId: "", roomLabel: "", guestName: "", numPeople: 2, contact: "",
       menuNotes: "", allergens: "", notes: "", amountPaidBefore: 0, amountPaidAfter: 0,
+      ...(initial || {}),
     }
   );
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -2179,11 +2348,15 @@ function NoteInline({ initial, onSave, onCancel }) {
 /* Mantenimiento                                                             */
 /* ---------------------------------------------------------------------- */
 
-function MaintenanceModule({ tickets, persistTickets, rooms, salones, persistSalones, editable, deletable }) {
+function MaintenanceModule({ tickets, persistTickets, rooms, salones, persistSalones, editable, deletable, prefillTicket, onPrefillConsumed }) {
   const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState("Todos");
   const [noteEditing, setNoteEditing] = useState(null);
+
+  useEffect(() => {
+    if (prefillTicket) setShowForm(true);
+  }, [prefillTicket]);
 
   const exteriorSalones = salones.filter((s) => s.category === "Espacios Exteriores");
 
@@ -2295,15 +2468,23 @@ function MaintenanceModule({ tickets, persistTickets, rooms, salones, persistSal
         </div>
       )}
 
-      {showForm && <TicketModal rooms={rooms} salones={salones} onClose={() => setShowForm(false)} onSave={create} />}
+      {showForm && (
+        <TicketModal
+          rooms={rooms}
+          salones={salones}
+          initial={prefillTicket}
+          onClose={() => { setShowForm(false); onPrefillConsumed && onPrefillConsumed(); }}
+          onSave={(ticket) => { create(ticket); onPrefillConsumed && onPrefillConsumed(); }}
+        />
+      )}
     </div>
   );
 }
 
-function TicketModal({ rooms, salones, onClose, onSave }) {
+function TicketModal({ rooms, salones, onClose, onSave, initial }) {
   const { t } = useTranslation();
-  const [form, setForm] = useState({ location: "", issue: "", priority: "Media", status: "Pendiente", assignedTo: "" });
-  const [customLocation, setCustomLocation] = useState(false);
+  const [form, setForm] = useState({ location: "", issue: "", priority: "Media", status: "Pendiente", assignedTo: "", ...(initial || {}) });
+  const [customLocation, setCustomLocation] = useState(!!(initial && initial.location));
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const onLocationSelect = (value) => {
@@ -2364,7 +2545,7 @@ function TicketModal({ rooms, salones, onClose, onSave }) {
 /* Eventos                                                                   */
 /* ---------------------------------------------------------------------- */
 
-function EventsModule({ events, persistEvents, editable, deletable }) {
+function EventsModule({ events, persistEvents, stays, editable, deletable }) {
   const { t } = useTranslation();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -2380,7 +2561,9 @@ function EventsModule({ events, persistEvents, editable, deletable }) {
   };
   const remove = async (id) => { await persistEvents(events.filter((e) => e.id !== id)); };
 
-  const filtered = events.filter((e) => e.date.startsWith(monthFilter)).sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
+  const groupEvents = groupStaysToPseudoEvents(stays || []);
+  const combined = [...events, ...groupEvents];
+  const filtered = combined.filter((e) => e.date.startsWith(monthFilter)).sort((a, b) => (a.date + (a.startTime || "")).localeCompare(b.date + (b.startTime || "")));
   const editingEvent = editingId ? events.find((e) => e.id === editingId) : null;
 
   return (
@@ -2404,7 +2587,24 @@ function EventsModule({ events, persistEvents, editable, deletable }) {
         <p className="text-sm text-stone-400 italic">{t("events_none_month")}</p>
       ) : (
         <div className="grid sm:grid-cols-2 gap-3">
-          {filtered.map((e) => (
+          {filtered.map((e) =>
+            e.isGroupBooking ? (
+              <div key={e.id} className="bg-white rounded-2xl border-2 border-dashed border-[#ab9574]/50 p-4">
+                <div className="flex items-center justify-between mb-2 gap-2">
+                  <div>
+                    <span className="font-semibold text-stone-800">{e.title}</span>
+                    <span className="block text-[11px] text-stone-400">Reserva de grupo (alojamiento)</span>
+                  </div>
+                  <Badge tone="purple">Grupo</Badge>
+                </div>
+                <div className="text-sm text-stone-600 space-y-1">
+                  <div className="flex items-center gap-1.5"><CalendarDays size={13} className="text-stone-400" /> {e.date} → {e.endDate}</div>
+                  <div className="flex items-center gap-1.5"><BedDouble size={13} className="text-stone-400" /> {e.units.join(", ")}</div>
+                  <div className="flex items-center gap-1.5"><Users size={13} className="text-stone-400" /> {e.totalGuests} {t("events_expected_people")}</div>
+                </div>
+                <p className="text-[11px] text-stone-400 mt-2 italic">Se gestiona desde Huéspedes y Alojamientos — aparece aquí solo, no requiere carga manual.</p>
+              </div>
+            ) : (
             <div key={e.id} className="bg-white rounded-2xl border border-stone-200 p-4">
               <div className="flex items-center justify-between mb-2 gap-2">
                 <div>
@@ -2443,7 +2643,8 @@ function EventsModule({ events, persistEvents, editable, deletable }) {
                 </div>
               )}
             </div>
-          ))}
+            )
+          )}
         </div>
       )}
 
@@ -2731,7 +2932,7 @@ function stayBarTone(s) {
   return { bg: "#a8a29e", text: "#fff" }; // gris: estancia ya finalizada
 }
 
-function PlanningGeneralModule({ rooms, stays, persistStays }) {
+function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
   const { t, lang } = useTranslation();
   const [windowStart, setWindowStart] = useState(todayStr());
   const [daysToShow, setDaysToShow] = useState(21);
@@ -2895,7 +3096,7 @@ function PlanningGeneralModule({ rooms, stays, persistStays }) {
                           const startOffset = Math.max(0, daysBetween(windowStart, s.checkIn) + liveDelta);
                           const clippedEnd = Math.min(daysBetween(windowStart, s.checkOut) + liveDelta, daysToShow - 1);
                           const widthDays = Math.max(1, clippedEnd - startOffset + 1);
-                          const canDrag = !!persistStays && s.status !== "Cancelada";
+                          const canDrag = !!persistStays && !!editable && s.status !== "Cancelada";
                           return (
                             <button
                               key={s.id}

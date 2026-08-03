@@ -261,6 +261,21 @@ export async function resolveGuestId(guestName) {
   return data;
 }
 
+export async function askAssistant(message, context, history) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new Error("Sesión no válida");
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/assistant-chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ message, context, history }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || "Error al consultar al asistente");
+  return json; // { reply, action }
+}
+
 export async function fetchGuestById(id) {
   const { data, error } = await supabase.from("guests").select("*").eq("id", id).maybeSingle();
   if (error) throw error;

@@ -37,6 +37,7 @@ export const TRANSLATIONS = {
     role_restaurant: "Personal de Restaurante",
     role_housekeeping: "Personal de Limpieza",
     role_maintenance: "Personal de Mantenimiento",
+    role_viewer: "Espectador",
 
     dash_units_occupied: "Unidades ocupadas hoy",
     dash_occupancy_people: "Ocupación total (personas)",
@@ -418,6 +419,7 @@ export const TRANSLATIONS = {
     role_restaurant: "Restaurant Staff",
     role_housekeeping: "Housekeeping Staff",
     role_maintenance: "Maintenance Staff",
+    role_viewer: "Viewer",
 
     dash_units_occupied: "Units occupied today",
     dash_occupancy_people: "Total occupancy (guests)",
@@ -796,6 +798,7 @@ export const TRANSLATIONS = {
     role_restaurant: "Restaurantpersoneel",
     role_housekeeping: "Schoonmaakpersoneel",
     role_maintenance: "Onderhoudspersoneel",
+    role_viewer: "Kijker",
 
     dash_units_occupied: "Bezette eenheden vandaag",
     dash_occupancy_people: "Totale bezetting (gasten)",
