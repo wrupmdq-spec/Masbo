@@ -425,14 +425,22 @@ export default function MasBoronatOps() {
   };
   const persistStays = async (next, actionOverride) => {
     const action = actionOverride || summarizeChange(stays, next, "reserva de alojamiento");
-    // Vincula cada estancia con su perfil de huésped (lo crea si es la primera vez que viene)
-    const withGuestIds = await Promise.all(
-      next.map(async (s) => {
-        if (s.guestId || !s.guestName) return s;
-        const guestId = await resolveGuestId(s.guestName);
-        return guestId ? { ...s, guestId } : s;
-      })
-    );
+    // Vincula cada estancia con su perfil de huésped (lo crea si es la primera vez que viene).
+    // Importante: se resuelve UNA vez por nombre, en orden (no en paralelo), porque una
+    // reserva de grupo puede traer varias estancias nuevas con el mismo huésped a la vez —
+    // resolverlas todas en paralelo crearía un perfil duplicado por cada unidad.
+    const resolvedByName = {};
+    const withGuestIds = [];
+    for (const s of next) {
+      const prevStay = stays.find((p) => p.id === s.id);
+      const nameChanged = prevStay && prevStay.guestName !== s.guestName;
+      if ((s.guestId && !nameChanged) || !s.guestName) { withGuestIds.push(s); continue; }
+      const key = s.guestName.trim().toLowerCase();
+      if (!(key in resolvedByName)) {
+        resolvedByName[key] = await resolveGuestId(s.guestName);
+      }
+      withGuestIds.push(resolvedByName[key] ? { ...s, guestId: resolvedByName[key] } : s);
+    }
     await syncStays(stays, withGuestIds);
     setStays(withGuestIds);
     logAction({ email: session.user.email, role, module: "Hospedaje", action });
@@ -1690,6 +1698,15 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
 /* Hoja de servicio imprimible del restaurante (formato físico / PDF)       */
 /* ---------------------------------------------------------------------- */
 
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function openPrintableDaySheet(dateStr, bookings) {
   const dateLabel = new Date(dateStr + "T00:00:00").toLocaleDateString("es-ES", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
@@ -1706,16 +1723,16 @@ function openPrintableDaySheet(dateStr, bookings) {
       ? `<tr><td colspan="8" style="text-align:center;color:#9c9284;padding:14px;font-style:italic;">Sin reservas</td></tr>`
       : rows.map((b) => `
         <tr>
-          <td style="white-space:nowrap;font-weight:600;">${b.time || ""}</td>
-          <td>${b.guestName || "Cliente"}</td>
+          <td style="white-space:nowrap;font-weight:600;">${escapeHtml(b.time || "")}</td>
+          <td>${escapeHtml(b.guestName || "Cliente")}</td>
           <td>${b.clientType === "Huésped del Resort" ? "Resort" : "Externo"}</td>
-          <td style="text-align:center;">${b.numPeople || ""}</td>
-          <td>${b.roomLabel || ""}</td>
-          <td>${b.contact || ""}</td>
-          <td>${(b.menuNotes || "").replace(/</g, "&lt;")}</td>
-          <td style="color:#b91c1c;font-weight:600;">${(b.allergens || "").replace(/</g, "&lt;")}</td>
+          <td style="text-align:center;">${escapeHtml(b.numPeople || "")}</td>
+          <td>${escapeHtml(b.roomLabel || "")}</td>
+          <td>${escapeHtml(b.contact || "")}</td>
+          <td>${escapeHtml(b.menuNotes || "")}</td>
+          <td style="color:#b91c1c;font-weight:600;">${escapeHtml(b.allergens || "")}</td>
         </tr>
-        ${b.notes ? `<tr><td></td><td colspan="7" style="color:#78716c;font-style:italic;padding-top:0;">Nota: ${b.notes.replace(/</g, "&lt;")}</td></tr>` : ""}
+        ${b.notes ? `<tr><td></td><td colspan="7" style="color:#78716c;font-style:italic;padding-top:0;">Nota: ${escapeHtml(b.notes)}</td></tr>` : ""}
       `).join("");
 
     return `
@@ -1747,7 +1764,7 @@ function openPrintableDaySheet(dateStr, bookings) {
     <html lang="es">
     <head>
       <meta charset="utf-8" />
-      <title>Hoja de servicio — ${dateStr}</title>
+      <title>Hoja de servicio — ${escapeHtml(dateStr)}</title>
       <style>
         @page { margin: 16mm; }
         body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; color: #292524; margin: 0; padding: 24px; }

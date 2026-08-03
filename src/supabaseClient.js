@@ -227,10 +227,6 @@ async function syncTable(table, prevArr, nextArr, toDb, idKey = "id") {
   }
 }
 
-function uidShort() {
-  return Math.random().toString(36).slice(2, 10);
-}
-
 const roomToDb = (r) => ({
   id: r.id, type: r.type, number: r.number, capacity: r.capacity,
   cleaning_status: r.cleaningStatus, cleaning_notes: r.cleaningNotes,
@@ -250,21 +246,19 @@ const guestFromDb = (row) => ({
 });
 export const fetchGuests = () => fetchTable("guests", guestFromDb);
 
+// Busca (o crea) el perfil de huésped correspondiente a este nombre.
+// Se resuelve en una sola operación atómica en el servidor (función
+// find_or_create_guest), por lo que es seguro aunque dos personas lo
+// llamen al mismo tiempo para el mismo nombre nuevo: nunca crea duplicados.
 export async function resolveGuestId(guestName) {
   const name = (guestName || "").trim();
   if (!name) return null;
-  const { data: existing } = await supabase
-    .from("guests").select("id").ilike("full_name", name).limit(1).maybeSingle();
-  if (existing) return existing.id;
-  const id = "g-" + uidShort();
-  const { error } = await supabase.from("guests").insert({ id, full_name: name });
+  const { data, error } = await supabase.rpc("find_or_create_guest", { p_name: name });
   if (error) {
-    const { data: retry } = await supabase.from("guests").select("id").ilike("full_name", name).limit(1).maybeSingle();
-    if (retry) return retry.id;
-    console.error("Error creando huésped", error);
+    console.error("Error resolviendo huésped", error);
     return null;
   }
-  return id;
+  return data;
 }
 
 export async function fetchGuestById(id) {
