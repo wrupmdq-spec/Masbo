@@ -39,8 +39,27 @@ const CATEGORIAS = [
 
 const CATEGORY_COLOR = Object.fromEntries(CATEGORIAS.map((c) => [c.type, c.color]));
 
+// Excepciones de capacidad: algunas unidades concretas admiten más personas
+// que el resto de su categoría.
+const CAPACITY_OVERRIDES = {
+  "Cataluña-1": 6,
+  "Cataluña-3": 6,
+  "Cataluña-5": 6,
+  "Cataluña-7": 6,
+  "Cataluña-9": 6,
+  "Cataluña-10": 6,
+  "Flandes-8": 8,
+  "Masía Aparts-1": 6,
+  "Masía Aparts-2": 6,
+  "Amberes-3": 6,
+  "Amberes-4": 6,
+};
+
 const UNIDADES = CATEGORIAS.flatMap((c) =>
-  c.numbers.map((n) => ({ id: n ? `${c.type}-${n}` : c.type, type: c.type, number: n, capacity: c.capacity }))
+  c.numbers.map((n) => {
+    const id = n ? `${c.type}-${n}` : c.type;
+    return { id, type: c.type, number: n, capacity: CAPACITY_OVERRIDES[id] || c.capacity };
+  })
 );
 
 const TIPOS_ALOJAMIENTO = CATEGORIAS.map((c) => c.type);
@@ -74,6 +93,12 @@ const SALONES_BASE = [
 ];
 const SALON_CATEGORIAS = ["Salones", "Espacios Exteriores"];
 const EVENT_SPACES = [...SALONES_BASE.map((s) => s.name), "Otro"];
+
+// Orden "de fábrica" de unidades y salones (Cataluña 1→10, Flandes 1→8, etc.).
+// Hace falta porque las tablas de la base de datos no garantizan ningún orden
+// por sí solas — hay que pedirlo explícitamente al cargar los datos.
+const ROOM_ORDER_INDEX = Object.fromEntries(UNIDADES.map((u, i) => [u.id, i]));
+const SALON_ORDER_INDEX = Object.fromEntries(SALONES_BASE.map((s, i) => [s.id, i]));
 
 function seedSalones() {
   return SALONES_BASE.map((s) => ({ ...s, cleaningStatus: "Limpia", cleaningNotes: "" }));
@@ -193,7 +218,10 @@ const unitLabel = (r) => (r.number ? `${r.type} ${r.number}` : r.type);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 // Solapamiento de dos rangos de fechas (inclusivo)
-const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart <= bEnd && bStart <= aEnd;
+// Dos estancias se solapan solo si de verdad comparten una noche. Si una sale
+// el mismo día que otra entra (check-out por la mañana, check-in por la tarde),
+// NO se consideran solapadas — por eso las comparaciones son estrictas (<), no <=.
+const rangesOverlap = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && bStart < aEnd;
 
 // Estado temporal de una estancia según las fechas (independiente de si está cancelada)
 function stayTiming(stay) {
@@ -486,8 +514,8 @@ export default function MasBoronatOps() {
         fetchRooms(), fetchStays(), fetchBookings(), fetchTickets(),
         fetchEvents(), fetchHotelStatus(), fetchSalones(), fetchExpenses(),
       ]);
-      let finalRooms = r;
-      let finalSalones = sal;
+      let finalRooms = [...r].sort((a, b) => (ROOM_ORDER_INDEX[a.id] ?? 999) - (ROOM_ORDER_INDEX[b.id] ?? 999));
+      let finalSalones = [...sal].sort((a, b) => (SALON_ORDER_INDEX[a.id] ?? 999) - (SALON_ORDER_INDEX[b.id] ?? 999));
       // Red de seguridad: si por lo que sea las tablas están vacías la primera
       // vez (proyecto nuevo, o antes de ejecutar la migración de datos), las siembra.
       if (initial && r.length === 0) {
@@ -1864,13 +1892,15 @@ function escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
-function openPrintableDaySheet(dateStr, bookings) {
+function openPrintableDaySheet(dateStr, bookings, shiftKey = null) {
   const dateLabel = new Date(dateStr + "T00:00:00").toLocaleDateString("es-ES", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
   const generatedAt = new Date().toLocaleString("es-ES");
+  const shiftsToPrint = shiftKey ? SHIFTS.filter((s) => s.key === shiftKey) : SHIFTS;
+  const bookingsToPrint = shiftKey ? bookings.filter((b) => b.timeSlot === shiftKey) : bookings;
 
-  const shiftSections = SHIFTS.map((shift) => {
+  const shiftSections = shiftsToPrint.map((shift) => {
     const rows = bookings
       .filter((b) => b.timeSlot === shift.key)
       .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
@@ -1914,7 +1944,7 @@ function openPrintableDaySheet(dateStr, bookings) {
     `;
   }).join("");
 
-  const totalCovers = bookings.reduce((sum, b) => sum + (Number(b.numPeople) || 0), 0);
+  const totalCovers = bookingsToPrint.reduce((sum, b) => sum + (Number(b.numPeople) || 0), 0);
 
   const html = `
     <!doctype html>
@@ -1931,11 +1961,11 @@ function openPrintableDaySheet(dateStr, bookings) {
     <body>
       <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #332b1f;padding-bottom:10px;margin-bottom:4px;">
         <div>
-          <h1 style="margin:0;font-size:22px;color:#332b1f;">Mas Boronat — Hoja de Servicio</h1>
+          <h1 style="margin:0;font-size:22px;color:#332b1f;">Mas Boronat — Hoja de Servicio${shiftKey ? ` · ${shiftsToPrint[0]?.label || ""}` : ""}</h1>
           <p style="margin:4px 0 0;font-size:13px;color:#57534e;text-transform:capitalize;">${dateLabel}</p>
         </div>
         <div style="text-align:right;font-size:11px;color:#a8a29e;">
-          <div>${bookings.length} reservas · ${totalCovers} comensales en total</div>
+          <div>${bookingsToPrint.length} reservas · ${totalCovers} comensales en total</div>
           <div>Generado: ${generatedAt}</div>
         </div>
       </div>
@@ -1961,6 +1991,7 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
   const [date, setDate] = useState(todayStr());
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [printMenuOpen, setPrintMenuOpen] = useState(false);
 
   useEffect(() => {
     if (prefillBooking) setShowForm(true);
@@ -1988,13 +2019,31 @@ function RestaurantModule({ stays, bookings, persistBookings, editable, deletabl
         </div>
         <div className="flex items-center gap-2">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls + " w-auto"} />
-          <button
-            onClick={() => openPrintableDaySheet(date, dayBookings)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50"
-            title="Genera una hoja de servicio lista para imprimir o guardar como PDF"
-          >
-            <Printer size={14} /> Imprimir hoja del día
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setPrintMenuOpen((v) => !v)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-stone-300 text-stone-600 hover:bg-stone-50"
+              title="Genera una hoja de servicio lista para imprimir o guardar como PDF"
+            >
+              <Printer size={14} /> Imprimir <ChevronDown size={12} />
+            </button>
+            {printMenuOpen && (
+              <div className="absolute right-0 mt-1 z-20 bg-white border border-stone-200 rounded-lg shadow-lg py-1 w-48 text-xs">
+                <button onClick={() => { openPrintableDaySheet(date, dayBookings); setPrintMenuOpen(false); }} className="w-full text-left px-3 py-2 hover:bg-stone-50 font-medium">
+                  Los 3 servicios
+                </button>
+                {SHIFTS.map((shift) => (
+                  <button
+                    key={shift.key}
+                    onClick={() => { openPrintableDaySheet(date, dayBookings, shift.key); setPrintMenuOpen(false); }}
+                    className="w-full text-left px-3 py-2 hover:bg-stone-50"
+                  >
+                    Solo {shift.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {editable && !hotelClosed && (
             <button onClick={() => setShowForm(true)} className={`flex items-center gap-1.5 px-3 py-2 ${primaryBtn}`}>
               <Plus size={16} /> {t("restaurant_new_booking")}
