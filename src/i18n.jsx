@@ -344,7 +344,8 @@ export const TRANSLATIONS = {
     pgen_legend_now: "Huésped alojado ahora",
     pgen_legend_future: "Reserva futura",
     pgen_legend_finished: "Estancia finalizada",
-    pgen_legend_overlap: "Solapadas (cada color = una reserva distinta)",
+    pgen_legend_overlap: "Solapamiento real (revisar, puede ser un duplicado)",
+    pgen_legend_colors: "Cada color = una reserva distinta",
     pgen_no_match: "No hay alojamientos que coincidan con la búsqueda.",
     pgen_edit_hint: "Para editar esta reserva, ve a \"Huéspedes y Alojamientos\".",
 
@@ -759,7 +760,8 @@ export const TRANSLATIONS = {
     pgen_legend_now: "Guest staying now",
     pgen_legend_future: "Future booking",
     pgen_legend_finished: "Finished stay",
-    pgen_legend_overlap: "Overlapping (each color = a different booking)",
+    pgen_legend_overlap: "Real overlap (check, might be a duplicate)",
+    pgen_legend_colors: "Each color = a different booking",
     pgen_no_match: "No rooms match your search.",
     pgen_edit_hint: "To edit this booking, go to \"Guests & Rooms\".",
 
@@ -1174,7 +1176,8 @@ export const TRANSLATIONS = {
     pgen_legend_now: "Gast verblijft nu",
     pgen_legend_future: "Toekomstige boeking",
     pgen_legend_finished: "Afgerond verblijf",
-    pgen_legend_overlap: "Overlappend (elke kleur = een andere boeking)",
+    pgen_legend_overlap: "Echte overlap (controleren, kan een duplicaat zijn)",
+    pgen_legend_colors: "Elke kleur = een andere boeking",
     pgen_no_match: "Geen kamers komen overeen met je zoekopdracht.",
     pgen_edit_hint: "Om deze boeking te bewerken, ga naar \"Gasten & Kamers\".",
 

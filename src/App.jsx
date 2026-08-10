@@ -3123,18 +3123,15 @@ function daysBetween(a, b) {
   const db = new Date(b + "T00:00:00");
   return Math.round((db - da) / 86400000);
 }
-// Paleta reservada para marcar solapamientos: colores muy distintos entre sí
-// (y distintos del verde/azul/gris normal) para que un grupo de 2, 3 o más
-// reservas solapadas en la misma unidad se distinga a simple vista.
-const OVERLAP_PALETTE = ["#ea580c", "#db2777", "#7c3aed", "#0891b2", "#ca8a04", "#e11d48"];
+// Paleta para distinguir reservas vecinas en una misma fila — se cicla por orden
+// cronológico dentro de cada unidad, así que dos reservas consecutivas NUNCA
+// caen en el mismo color, se solapen o no (que es justo lo que hacía confuso
+// el planning: dos huéspedes distintos con la misma franja azul, pegados).
+const ROW_PALETTE = ["#0369a1", "#16a34a", "#ea580c", "#7c3aed", "#db2777", "#0891b2", "#ca8a04", "#059669"];
 
-function stayBarTone(s, overlapColor) {
+function stayBarTone(s, colorIndex) {
   if (s.status === "Cancelada") return null;
-  if (overlapColor) return { bg: overlapColor, text: "#fff" };
-  const timing = stayTiming(s);
-  if (timing === "En curso") return { bg: "#16a34a", text: "#fff" }; // verde: huésped en casa ahora
-  if (timing === "Próxima") return { bg: "#0369a1", text: "#fff" }; // azul: reserva futura
-  return { bg: "#a8a29e", text: "#fff" }; // gris: estancia ya finalizada
+  return { bg: ROW_PALETTE[colorIndex % ROW_PALETTE.length], text: "#fff" };
 }
 
 function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
@@ -3147,11 +3144,12 @@ function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
   const [dragging, setDragging] = useState(null); // { stayId, startX, deltaDays }
   const dragMovedRef = useRef(false);
 
-  // Agrupa las reservas que se solapan (misma unidad, mismas noches) en "familias":
-  // si A se solapa con B, y B con C, las tres son una misma familia y cada una
-  // recibe un color distinto de sus compañeras, para poder distinguirlas de un vistazo.
-  const stayOverlapColor = {};
-  const overlapPartners = {}; // stayId -> [otras reservas de su misma familia]
+  // Un color por reserva, distinto siempre del de su vecina inmediata en la misma
+  // fila (ordenadas por fecha de entrada) — y, aparte, detecta solapamientos REALES
+  // (mismas noches, no solo "pegadas") para marcarlos con un aviso, ya que eso sí
+  // suele ser un error de carga (una reserva duplicada) que conviene revisar.
+  const stayColorIndex = {};
+  const overlapPartners = {}; // stayId -> [otras reservas con las que de verdad se solapa]
   {
     const byRoom = {};
     stays.forEach((s) => {
@@ -3159,30 +3157,17 @@ function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
       (byRoom[s.roomId] = byRoom[s.roomId] || []).push(s);
     });
     Object.values(byRoom).forEach((roomStays) => {
-      const n = roomStays.length;
-      const parent = Array.from({ length: n }, (_, i) => i);
-      const find = (x) => (parent[x] === x ? x : (parent[x] = find(parent[x])));
-      const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
-      for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
+      roomStays.sort((a, b) => a.checkIn.localeCompare(b.checkIn) || a.id.localeCompare(b.id));
+      roomStays.forEach((s, idx) => { stayColorIndex[s.id] = idx; });
+
+      for (let i = 0; i < roomStays.length; i++) {
+        for (let j = i + 1; j < roomStays.length; j++) {
           if (rangesOverlap(roomStays[i].checkIn, roomStays[i].checkOut, roomStays[j].checkIn, roomStays[j].checkOut)) {
-            union(i, j);
+            (overlapPartners[roomStays[i].id] = overlapPartners[roomStays[i].id] || []).push(roomStays[j]);
+            (overlapPartners[roomStays[j].id] = overlapPartners[roomStays[j].id] || []).push(roomStays[i]);
           }
         }
       }
-      const clusters = {};
-      for (let i = 0; i < n; i++) {
-        const root = find(i);
-        (clusters[root] = clusters[root] || []).push(roomStays[i]);
-      }
-      Object.values(clusters).forEach((cluster) => {
-        if (cluster.length < 2) return;
-        cluster.sort((a, b) => a.checkIn.localeCompare(b.checkIn) || a.id.localeCompare(b.id));
-        cluster.forEach((s, idx) => {
-          stayOverlapColor[s.id] = OVERLAP_PALETTE[idx % OVERLAP_PALETTE.length];
-          overlapPartners[s.id] = cluster.filter((x) => x.id !== s.id);
-        });
-      });
     });
   }
 
@@ -3266,17 +3251,15 @@ function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
       </div>
 
       <div className="flex items-center gap-4 mb-2 text-[11px] text-stone-500 flex-wrap">
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#16a34a] inline-block" /> {t("pgen_legend_now")}</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#0369a1] inline-block" /> {t("pgen_legend_future")}</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#a8a29e] inline-block" /> {t("pgen_legend_finished")}</span>
         <span className="flex items-center gap-1">
           <span className="flex -space-x-0.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#0369a1] inline-block border border-white" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#16a34a] inline-block border border-white" />
             <span className="w-2.5 h-2.5 rounded-full bg-[#ea580c] inline-block border border-white" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[#db2777] inline-block border border-white" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[#7c3aed] inline-block border border-white" />
           </span>
-          {t("pgen_legend_overlap")}
+          {t("pgen_legend_colors")}
         </span>
+        <span className="flex items-center gap-1">⚠️ {t("pgen_legend_overlap")}</span>
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
@@ -3341,7 +3324,8 @@ function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
                       </div>
                       <div className="relative" style={{ width: totalWidth, height: 40, ...gridBg }}>
                         {roomStays.map((s) => {
-                          const tone = stayBarTone(s, stayOverlapColor[s.id]);
+                          const tone = stayBarTone(s, stayColorIndex[s.id] ?? 0);
+                          const hasRealOverlap = overlapPartners[s.id] && overlapPartners[s.id].length > 0;
                           if (!tone) return null;
                           const isDraggingThis = dragging && dragging.stayId === s.id;
                           const liveDelta = isDraggingThis ? dragging.deltaDays : 0;
@@ -3406,9 +3390,12 @@ function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
                                 touchAction: "none",
                                 zIndex: isDraggingThis ? 20 : 1,
                                 boxShadow: isDraggingThis ? "0 4px 10px rgba(0,0,0,0.25)" : undefined,
+                                outline: hasRealOverlap ? "2px dashed #fde047" : undefined,
+                                outlineOffset: hasRealOverlap ? "1px" : undefined,
                               }}
-                              className="absolute rounded-md px-2 text-[11px] font-medium truncate text-left shadow-sm hover:brightness-95 select-none"
+                              className="absolute rounded-md px-2 text-[11px] font-medium truncate text-left shadow-sm hover:brightness-95 select-none flex items-center gap-1"
                             >
+                              {hasRealOverlap && <span title="Se solapa con otra reserva — revisar">⚠️</span>}
                               {s.guestName || "Sin nombre"}
                             </button>
                           );
