@@ -261,6 +261,47 @@ export async function resolveGuestId(guestName) {
   return data;
 }
 
+/* ---------------------------------------------------------------------- */
+/* Directivas al personal (mensajes dirigidos + seguimiento de cumplimiento) */
+/* ---------------------------------------------------------------------- */
+
+// Directivas dirigidas a MÍ (el usuario logueado)
+export async function fetchMyNotifications() {
+  const { data, error } = await supabase
+    .from("staff_notifications")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) { console.error("Error leyendo directivas", error); return []; }
+  return data || [];
+}
+
+// Todas las directivas enviadas (solo admin la puede usar de verdad, por RLS)
+export async function fetchAllNotifications() {
+  const { data, error } = await supabase
+    .from("staff_notifications")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) { console.error("Error leyendo el registro de directivas", error); return []; }
+  return data || [];
+}
+
+export async function sendNotification(targetEmail, message, sentBy) {
+  const id = "n-" + Math.random().toString(36).slice(2, 10);
+  const { error } = await supabase.from("staff_notifications").insert({
+    id, target_email: targetEmail, message, sent_by: sentBy, status: "Pendiente",
+  });
+  if (error) throw error;
+  return id;
+}
+
+export async function updateNotificationStatus(id, status) {
+  const { error } = await supabase
+    .from("staff_notifications")
+    .update({ status, completed_at: status === "Cumplido" ? new Date().toISOString() : null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function askAssistant(message, context, history) {
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;

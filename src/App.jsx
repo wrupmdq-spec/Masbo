@@ -4,7 +4,7 @@ import {
   Plus, X, RefreshCw, Users, Phone, StickyNote, Clock, ChevronDown,
   CheckCircle2, AlertTriangle, Circle, Search, CalendarDays, MapPin,
   CalendarRange, ChevronLeft, ChevronRight, ShieldAlert, Rows3, ChevronsLeft, ChevronsRight,
-  BarChart3, TrendingUp, Timer, Award, Printer, CheckSquare
+  BarChart3, TrendingUp, Timer, Award, Printer, CheckSquare, Bell
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
@@ -17,6 +17,7 @@ import {
   fetchTickets, syncTickets, fetchEvents, syncEvents, fetchSalones, syncSalones,
   fetchExpenses, syncExpenses, fetchHotelStatus, saveHotelStatus,
   fetchGuests, resolveGuestId, saveGuestNotes, fetchGuestById, askAssistant,
+  fetchMyNotifications, fetchAllNotifications, sendNotification, updateNotificationStatus,
 } from "./supabaseClient";
 import Login from "./Login";
 import SetPassword from "./SetPassword";
@@ -68,7 +69,7 @@ const TIPOS_ALOJAMIENTO = CATEGORIAS.map((c) => c.type);
 const TOTAL_CAPACITY = UNIDADES.reduce((sum, u) => sum + u.capacity, 0);
 
 const MEAL_PLANS = ["Ninguno", "Desayuno incluido", "Todo incluido"];
-const CLEAN_STATUSES = ["Limpia", "Sucia", "En Progreso", "Inspección Necesaria"];
+const CLEAN_STATUSES = ["Limpia", "Sucia", "En Progreso", "Inspección Necesaria", "Ocupado"];
 const SHIFTS = [
   { key: "Desayuno", label: "Desayuno", time: "08:00" },
   { key: "Almuerzo", label: "Almuerzo / Calçotada", time: "14:00" },
@@ -273,7 +274,7 @@ function Badge({ children, tone = "slate" }) {
   );
 }
 
-function cleanTone(s) { return s === "Limpia" ? "green" : s === "Sucia" ? "red" : s === "En Progreso" ? "yellow" : "purple"; }
+function cleanTone(s) { return s === "Limpia" ? "green" : s === "Sucia" ? "red" : s === "En Progreso" ? "yellow" : s === "Ocupado" ? "blue" : "purple"; }
 function priorityTone(p) { return p === "Alta" ? "red" : p === "Media" ? "yellow" : "slate"; }
 function ticketStatusTone(s) { return s === "Resuelto" ? "green" : s === "En Progreso" ? "yellow" : "slate"; }
 function eventStatusTone(s) {
@@ -319,7 +320,7 @@ function buildAssistantContext({ rooms, stays, bookings, tickets, events }) {
   const activeStays = stays.filter((s) => s.status !== "Cancelada");
   return {
     fechaHoy: today,
-    unidadesSuciasOInspeccion: rooms.filter((r) => r.cleaningStatus !== "Limpia").map((r) => `${unitLabel(r)} (${r.cleaningStatus})`),
+    unidadesSuciasOInspeccion: rooms.filter((r) => r.cleaningStatus !== "Limpia" && r.cleaningStatus !== "Ocupado").map((r) => `${unitLabel(r)} (${r.cleaningStatus})`),
     llegadasHoy: activeStays.filter((s) => s.checkIn === today).map((s) => ({ huesped: s.guestName, unidad: s.roomLabel, personas: s.numGuests })),
     salidasHoy: activeStays.filter((s) => s.checkOut === today).map((s) => ({ huesped: s.guestName, unidad: s.roomLabel })),
     llegadasManana: activeStays.filter((s) => s.checkIn === tomorrow).map((s) => ({ huesped: s.guestName, unidad: s.roomLabel, personas: s.numGuests })),
@@ -371,7 +372,7 @@ function AssistantWidget({ rooms, stays, bookings, tickets, events, onAction }) 
           <div className="flex-1 overflow-y-auto p-3 space-y-2 text-sm">
             {messages.length === 0 && (
               <p className="text-stone-400 text-xs italic">
-                Pregúntame cosas como "¿cuántas unidades están sucias?", "¿quién llega mañana?", o pídeme "crea un ticket: aire acondicionado roto en Flandes 3".
+                Pregúntame cosas como "¿cuántas unidades están sucias?", "¿quién llega mañana?", pídeme "crea un ticket: aire acondicionado roto en Flandes 3", o "avisa a fulano de que revise tal cosa".
               </p>
             )}
             {messages.map((m, i) => (
@@ -481,6 +482,8 @@ export default function MasBoronatOps() {
   const [connectionIssue, setConnectionIssue] = useState(false);
   const [alertToast, setAlertToast] = useState(null);
   const [pendingAction, setPendingAction] = useState(null); // { type, fields } | null
+  const [myNotifications, setMyNotifications] = useState([]);
+  const seenNotifIdsRef = useRef(null);
   const failCountRef = useRef(0);
 
   // Sesión de autenticación
@@ -571,6 +574,33 @@ export default function MasBoronatOps() {
 
   const role = profile?.role;
   const cfg = role ? ROLES[role] : null;
+
+  // Mis mensajes: se consultan aparte (son personales, no compartidos como el resto de
+  // datos). Cuando llega uno nuevo de verdad (id nunca visto), suena un aviso — esto es
+  // intencionado y poco frecuente, así que no resulta tedioso como el sistema anterior.
+  useEffect(() => {
+    if (!session || !role) return;
+    const loadNotifs = async () => {
+      const list = await fetchMyNotifications();
+      if (seenNotifIdsRef.current !== null) {
+        const nuevos = list.filter((n) => !seenNotifIdsRef.current.has(n.id) && n.status === "Pendiente");
+        if (nuevos.length > 0) {
+          playAlertSound();
+          setAlertToast("📩 Tienes un mensaje nuevo de Administración");
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            try { new Notification("Mas Boronat", { body: nuevos[0].message, icon: "/icon-192.png" }); } catch (e) { /* noop */ }
+          }
+          setTimeout(() => setAlertToast(null), 6000);
+        }
+      }
+      seenNotifIdsRef.current = new Set(list.map((n) => n.id));
+      setMyNotifications(list);
+    };
+    loadNotifs();
+    const iv = setInterval(loadNotifs, 10000);
+    return () => clearInterval(iv);
+  }, [session, role]);
+
 
   useEffect(() => {
     if (cfg && !cfg.tabs.includes(tab)) setTab(cfg.tabs[0]);
@@ -692,49 +722,9 @@ export default function MasBoronatOps() {
     persistRooms(updatedRooms, `Marcó automáticamente ${changedCount} unidad(es) como sucias tras el check-out`);
   }, [stays, rooms, role]); // eslint-disable-line
 
-  // Alerta con sonido: avisa a Limpieza/Mantenimiento en cuanto aparece una tarea NUEVA
-  // en su sección — identificada por su id concreto, no por un recuento total. Así cada
-  // tarea avisa una sola vez, y un cambio en cualquier otro módulo nunca la dispara.
-  const seenTicketIdsRef = useRef(null);
-  const seenDirtyIdsRef = useRef(null);
+  // Pide permiso de notificaciones del navegador una vez (para las directivas dirigidas)
   useEffect(() => {
-    if (role !== "maintenance" && role !== "housekeeping") return;
-
-    if (role === "maintenance") {
-      if (!tickets || !salones) return;
-      const openIds = new Set([
-        ...tickets.filter((t) => t.status !== "Resuelto").map((t) => t.id),
-        ...salones.filter((s) => s.category === "Espacios Exteriores" && s.cleaningStatus !== "Limpia").map((s) => s.id),
-      ]);
-      if (seenTicketIdsRef.current === null) { seenTicketIdsRef.current = openIds; return; }
-      const nuevos = [...openIds].filter((id) => !seenTicketIdsRef.current.has(id));
-      seenTicketIdsRef.current = openIds;
-      if (nuevos.length > 0) fireAlert("Mantenimiento", nuevos.length);
-    } else {
-      if (!rooms || !salones) return;
-      const dirtyIds = new Set([
-        ...rooms.filter((r) => r.cleaningStatus !== "Limpia").map((r) => r.id),
-        ...salones.filter((s) => s.category === "Salones" && s.cleaningStatus !== "Limpia").map((s) => s.id),
-      ]);
-      if (seenDirtyIdsRef.current === null) { seenDirtyIdsRef.current = dirtyIds; return; }
-      const nuevos = [...dirtyIds].filter((id) => !seenDirtyIdsRef.current.has(id));
-      seenDirtyIdsRef.current = dirtyIds;
-      if (nuevos.length > 0) fireAlert("Limpieza", nuevos.length);
-    }
-
-    function fireAlert(label, count) {
-      playAlertSound();
-      setAlertToast(`🔔 ${count > 1 ? `${count} tareas nuevas` : "Hay una tarea nueva"} en ${label}`);
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        try { new Notification("Mas Boronat", { body: `Nueva tarea pendiente en ${label}`, icon: "/icon-192.png" }); } catch (e) { /* noop */ }
-      }
-      setTimeout(() => setAlertToast(null), 6000);
-    }
-  }, [role, tickets, rooms, salones]);
-
-  // Pide permiso de notificaciones una vez, para el personal de limpieza/mantenimiento
-  useEffect(() => {
-    if ((role === "maintenance" || role === "housekeeping") && typeof Notification !== "undefined" && Notification.permission === "default") {
+    if (role && typeof Notification !== "undefined" && Notification.permission === "default") {
       Notification.requestPermission();
     }
   }, [role]);
@@ -805,7 +795,14 @@ export default function MasBoronatOps() {
 
   return (
     <div className="min-h-screen bg-stone-50 font-sans">
-      <TopBar role={role} email={session.user.email} lastSync={lastSync} syncing={syncing} onRefresh={() => refreshAll(false)} />
+      <TopBar
+        role={role} email={session.user.email} lastSync={lastSync} syncing={syncing} onRefresh={() => refreshAll(false)}
+        myNotifications={myNotifications}
+        onMarkNotificationDone={async (id) => {
+          await updateNotificationStatus(id, "Cumplido");
+          setMyNotifications((list) => list.map((n) => (n.id === id ? { ...n, status: "Cumplido" } : n)));
+        }}
+      />
       <TabNav tabs={cfg.tabs} tab={tab} setTab={setTab} />
 
       {connectionIssue && (
@@ -878,7 +875,13 @@ export default function MasBoronatOps() {
         )}
         {role === "admin" && (
           <div className={tab === "admin" ? "" : "hidden"}>
-            <AdminModule rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} salones={salones} expenses={expenses} persistExpenses={persistExpenses} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus} email={session.user.email} />
+            <AdminModule
+              rooms={rooms} stays={stays} bookings={bookings} tickets={tickets} salones={salones} expenses={expenses}
+              persistExpenses={persistExpenses} persistStays={persistStays} hotelStatus={hotelStatus} persistHotelStatus={persistHotelStatus}
+              email={session.user.email}
+              prefillNotification={pendingAction?.type === "send_notification" ? pendingAction.fields : null}
+              onPrefillConsumed={() => setPendingAction(null)}
+            />
           </div>
         )}
       </main>
@@ -890,6 +893,7 @@ export default function MasBoronatOps() {
             setPendingAction(action);
             if (action.type === "create_ticket") setTab("maintenance");
             if (action.type === "create_booking") setTab("restaurant");
+            if (action.type === "send_notification") setTab("admin");
           }}
         />
       )}
@@ -901,9 +905,11 @@ export default function MasBoronatOps() {
 /* Barra superior y navegación                                             */
 /* ---------------------------------------------------------------------- */
 
-function TopBar({ role, email, lastSync, syncing, onRefresh }) {
+function TopBar({ role, email, lastSync, syncing, onRefresh, myNotifications, onMarkNotificationDone }) {
   const { t, lang, setLang } = useTranslation();
+  const [bellOpen, setBellOpen] = useState(false);
   const roleLabel = t(`role_${role}`);
+  const pendingNotifs = (myNotifications || []).filter((n) => n.status === "Pendiente");
   return (
     <header className="bg-[#332b1f] text-white sticky top-0 z-30 shadow-sm">
       <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between gap-3">
@@ -927,6 +933,42 @@ function TopBar({ role, email, lastSync, syncing, onRefresh }) {
                 {l.flag}
               </button>
             ))}
+          </div>
+          <div className="relative">
+            <button onClick={() => setBellOpen((v) => !v)} className="relative p-2 rounded-full hover:bg-[#463b2a] text-[#c4baab]" title={t("notif_bell_title")}>
+              <Bell size={16} />
+              {pendingNotifs.length > 0 && (
+                <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {pendingNotifs.length}
+                </span>
+              )}
+            </button>
+            {bellOpen && (
+              <div className="absolute right-0 mt-2 w-72 max-h-96 overflow-y-auto bg-white rounded-xl shadow-2xl border border-stone-200 text-stone-700 z-50">
+                <div className="px-3 py-2.5 border-b border-stone-100 font-semibold text-sm text-stone-800">{t("notif_bell_title")}</div>
+                {(myNotifications || []).length === 0 ? (
+                  <p className="text-xs text-stone-400 italic px-3 py-4">{t("notif_none")}</p>
+                ) : (
+                  <div className="divide-y divide-stone-100">
+                    {myNotifications.map((n) => (
+                      <div key={n.id} className="px-3 py-2.5">
+                        <p className="text-xs text-stone-700">{n.message}</p>
+                        <div className="flex items-center justify-between mt-1.5">
+                          <span className="text-[10px] text-stone-400">{t("notif_from")} {n.sent_by} · {new Date(n.created_at).toLocaleDateString()}</span>
+                          {n.status === "Pendiente" ? (
+                            <button onClick={() => onMarkNotificationDone(n.id)} className="text-[11px] font-medium text-[#6d5c42]">
+                              {t("notif_mark_done")}
+                            </button>
+                          ) : (
+                            <Badge tone={n.status === "Cumplido" ? "green" : "red"}>{n.status === "Cumplido" ? t("status_cumplido") : t("status_no_cumplido")}</Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <button onClick={onRefresh} className="p-2 rounded-full hover:bg-[#463b2a] text-[#c4baab]" title={t("refresh")}>
             <RefreshCw size={16} className={syncing ? "animate-spin" : ""} />
@@ -2223,6 +2265,7 @@ function cleanStatusIcon(status) {
   if (status === "Limpia") return <CheckCircle2 size={13} />;
   if (status === "Sucia") return <AlertTriangle size={13} />;
   if (status === "En Progreso") return <RefreshCw size={13} />;
+  if (status === "Ocupado") return <Users size={13} />;
   return <Circle size={13} />;
 }
 
@@ -3623,7 +3666,7 @@ function HousekeepingStats({ rooms, auditLog }) {
   CLEAN_STATUSES.forEach((s) => (statusCounts[s] = 0));
   rooms.forEach((r) => { statusCounts[r.cleaningStatus] = (statusCounts[r.cleaningStatus] || 0) + 1; });
   const statusData = CLEAN_STATUSES.map((s) => ({ estado: t("cl_" + s), rawStatus: s, unidades: statusCounts[s] }));
-  const statusFill = { Limpia: CHART_GREEN, Sucia: CHART_ROSE, "En Progreso": CHART_AMBER, "Inspección Necesaria": CHART_PURPLE };
+  const statusFill = { Limpia: CHART_GREEN, Sucia: CHART_ROSE, "En Progreso": CHART_AMBER, "Inspección Necesaria": CHART_PURPLE, Ocupado: CHART_BLUE };
 
   const hkLog = auditLog.filter((l) => l.module === "Limpieza / Alojamientos");
   const days = Array.from({ length: 14 }, (_, i) => addDays(todayStr(), i - 13));
@@ -3980,6 +4023,134 @@ function StaffPanel({ adminEmail }) {
   );
 }
 
+/* ---------------------------------------------------------------------- */
+/* Directivas al personal — envío de mensajes dirigidos + registro          */
+/* ---------------------------------------------------------------------- */
+
+function DirectivasPanel({ adminEmail, prefillNotification, onPrefillConsumed }) {
+  const { t } = useTranslation();
+  const [staff, setStaff] = useState(null);
+  const [log, setLog] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    if (prefillNotification) setShowForm(true);
+  }, [prefillNotification]);
+
+  const load = useCallback(() => {
+    fetchStaffDirectory().then((res) => setStaff(res.items));
+    fetchAllNotifications().then(setLog);
+  }, []);
+  useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
+
+  const send = async (targetEmail, message) => {
+    await sendNotification(targetEmail, message, adminEmail);
+    setShowForm(false);
+    onPrefillConsumed && onPrefillConsumed();
+    load();
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    onPrefillConsumed && onPrefillConsumed();
+  };
+
+  const changeStatus = async (id, status) => {
+    await updateNotificationStatus(id, status);
+    load();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-2xl border border-stone-200 p-4">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h3 className="font-semibold text-stone-700">{t("admin_directivas_title")}</h3>
+            <p className="text-xs text-stone-400 mt-0.5">{t("admin_directivas_subtitle")}</p>
+          </div>
+          <button onClick={() => setShowForm(true)} className={`flex items-center gap-1.5 text-xs px-3 py-2 ${primaryBtn} shrink-0`}>
+            <Plus size={14} /> {t("admin_directivas_new")}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-stone-200 p-4">
+        {log === null ? (
+          <p className="text-sm text-stone-400 italic">{t("common_loading")}</p>
+        ) : log.length === 0 ? (
+          <p className="text-sm text-stone-400 italic">{t("admin_directivas_none")}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-stone-400 border-b border-stone-100">
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_sent")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_recipient")}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t("admin_col_message")}</th>
+                  <th className="py-1.5 font-medium">{t("admin_col_role")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {log.map((n) => (
+                  <tr key={n.id} className="border-b border-stone-50 align-top">
+                    <td className="py-1.5 pr-3 text-stone-400 whitespace-nowrap">{new Date(n.created_at).toLocaleString()}</td>
+                    <td className="py-1.5 pr-3 text-stone-700 whitespace-nowrap">{n.target_email}</td>
+                    <td className="py-1.5 pr-3 text-stone-600 max-w-xs">{n.message}</td>
+                    <td className="py-1.5">
+                      <select value={n.status} onChange={(e) => changeStatus(n.id, e.target.value)} className="text-xs rounded-lg border border-stone-300 px-1.5 py-1">
+                        <option value="Pendiente">{t("status_pendiente")}</option>
+                        <option value="Cumplido">{t("status_cumplido")}</option>
+                        <option value="No cumplido">{t("status_no_cumplido")}</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {showForm && <SendNotificationModal staff={staff || []} initial={prefillNotification} onClose={closeForm} onSend={send} />}
+    </div>
+  );
+}
+
+function SendNotificationModal({ staff, initial, onClose, onSend }) {
+  const { t } = useTranslation();
+  const guessedEmail = (() => {
+    const hint = (initial?.targetHint || initial?.targetEmail || "").trim().toLowerCase();
+    if (!hint) return "";
+    const match = staff.find((s) => s.email.toLowerCase().includes(hint) || (ROLES[s.role]?.label || "").toLowerCase().includes(hint));
+    return match ? match.email : (staff.some((s) => s.email.toLowerCase() === hint) ? hint : "");
+  })();
+  const [targetEmail, setTargetEmail] = useState(guessedEmail);
+  const [message, setMessage] = useState(initial?.message || "");
+
+  return (
+    <Modal title={t("notif_send_title")} onClose={onClose}>
+      <Field label={t("notif_send_to_label")}>
+        <select className={inputCls} value={targetEmail} onChange={(e) => setTargetEmail(e.target.value)}>
+          <option value="">{t("notif_send_pick")}</option>
+          {staff.map((s) => (
+            <option key={s.id} value={s.email}>{s.email} · {t("role_" + s.role)}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label={t("notif_send_msg_label")}>
+        <textarea className={inputCls} rows={4} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("notif_send_msg_ph")} />
+      </Field>
+      <button
+        onClick={() => targetEmail && message.trim() && onSend(targetEmail, message.trim())}
+        disabled={!targetEmail || !message.trim()}
+        className={`w-full mt-2 py-2.5 ${primaryBtn} disabled:opacity-50`}
+      >
+        {t("notif_send_btn")}
+      </button>
+    </Modal>
+  );
+}
+
 function ResetPasswordModal({ target, onClose, onDone }) {
   const { t } = useTranslation();
   const [newPassword, setNewPassword] = useState("");
@@ -4274,6 +4445,7 @@ function ExpenseModal({ onClose, onSave }) {
 const ADMIN_SUBTABS = [
   { key: "resumen", label: "admintab_resumen" },
   { key: "personal", label: "admintab_personal" },
+  { key: "directivas", label: "admin_directivas_title" },
   { key: "finanzas", label: "admintab_finanzas" },
   { key: "hospedaje", label: "admintab_hospedaje" },
   { key: "restaurante", label: "admintab_restaurante" },
@@ -4282,13 +4454,17 @@ const ADMIN_SUBTABS = [
   { key: "actividad", label: "admintab_actividad" },
 ];
 
-function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persistExpenses, persistStays, hotelStatus, persistHotelStatus, email }) {
+function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persistExpenses, persistStays, hotelStatus, persistHotelStatus, email, prefillNotification, onPrefillConsumed }) {
   const { t } = useTranslation();
   const [log, setLog] = useState(null);
   const [confirming, setConfirming] = useState(null); // "close" | "open" | null
   const [subtab, setSubtab] = useState("resumen");
   const [backupState, setBackupState] = useState("idle"); // idle | working | done | error
   const [showBackupAuth, setShowBackupAuth] = useState(false);
+
+  useEffect(() => {
+    if (prefillNotification) setSubtab("directivas");
+  }, [prefillNotification]);
 
   const loadLog = useCallback(() => {
     fetchAuditLog(200).then(setLog);
@@ -4408,6 +4584,14 @@ function AdminModule({ rooms, stays, bookings, tickets, salones, expenses, persi
       )}
 
       {subtab === "personal" && <StaffPanel adminEmail={email} />}
+
+      {subtab === "directivas" && (
+        <DirectivasPanel
+          adminEmail={email}
+          prefillNotification={prefillNotification}
+          onPrefillConsumed={onPrefillConsumed}
+        />
+      )}
       {subtab === "finanzas" && <FinanceModule stays={stays} bookings={bookings} expenses={expenses} persistExpenses={persistExpenses} email={email} />}
 
       {subtab === "hospedaje" && <OccupancyStats rooms={rooms} stays={stays} />}
