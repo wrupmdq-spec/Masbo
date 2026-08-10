@@ -378,7 +378,7 @@ function AssistantWidget({ rooms, stays, bookings, tickets, events, onAction }) 
             {messages.map((m, i) => (
               <div key={i} className={`rounded-xl px-3 py-2 max-w-[88%] ${m.role === "user" ? "bg-[#ab9574]/20 ml-auto" : "bg-stone-100"}`}>
                 <div className="whitespace-pre-wrap">{m.text}</div>
-                {m.action && (m.action.type === "create_ticket" || m.action.type === "create_booking") && (
+                {m.action && (m.action.type === "create_ticket" || m.action.type === "create_booking" || m.action.type === "send_notification") && (
                   <button
                     onClick={() => { onAction(m.action); setOpen(false); }}
                     className="mt-2 text-xs font-medium text-white bg-[#806c4d] hover:bg-[#6d5c42] rounded-lg px-2.5 py-1.5"
@@ -581,7 +581,7 @@ export default function MasBoronatOps() {
   useEffect(() => {
     if (!session || !role) return;
     const loadNotifs = async () => {
-      const list = await fetchMyNotifications();
+      const list = await fetchMyNotifications(session.user.id);
       if (seenNotifIdsRef.current !== null) {
         const nuevos = list.filter((n) => !seenNotifIdsRef.current.has(n.id) && n.status === "Pendiente");
         if (nuevos.length > 0) {
@@ -4043,8 +4043,8 @@ function DirectivasPanel({ adminEmail, prefillNotification, onPrefillConsumed })
   }, []);
   useEffect(() => { load(); const iv = setInterval(load, 15000); return () => clearInterval(iv); }, [load]);
 
-  const send = async (targetEmail, message) => {
-    await sendNotification(targetEmail, message, adminEmail);
+  const send = async (targetUserId, targetEmail, message) => {
+    await sendNotification(targetUserId, targetEmail, message, adminEmail);
     setShowForm(false);
     onPrefillConsumed && onPrefillConsumed();
     load();
@@ -4118,22 +4118,36 @@ function DirectivasPanel({ adminEmail, prefillNotification, onPrefillConsumed })
 
 function SendNotificationModal({ staff, initial, onClose, onSend }) {
   const { t } = useTranslation();
-  const guessedEmail = (() => {
-    const hint = (initial?.targetHint || initial?.targetEmail || "").trim().toLowerCase();
-    if (!hint) return "";
-    const match = staff.find((s) => s.email.toLowerCase().includes(hint) || (ROLES[s.role]?.label || "").toLowerCase().includes(hint));
-    return match ? match.email : (staff.some((s) => s.email.toLowerCase() === hint) ? hint : "");
-  })();
-  const [targetEmail, setTargetEmail] = useState(guessedEmail);
+  const [targetId, setTargetId] = useState("");
   const [message, setMessage] = useState(initial?.message || "");
+
+  useEffect(() => {
+    if (targetId) return; // no pisar una elección ya hecha por la persona
+    const hint = (initial?.targetHint || initial?.targetEmail || "").trim().toLowerCase();
+    if (!hint || !staff || staff.length === 0) return;
+    const match = staff.find((s) => s.email.toLowerCase().includes(hint) || (ROLES[s.role]?.label || "").toLowerCase().includes(hint));
+    if (match) setTargetId(match.id);
+  }, [staff, initial]); // eslint-disable-line
+
+  const selectedStaff = staff.find((s) => s.id === targetId);
+
+  const submit = () => {
+    if (!selectedStaff || !message.trim()) return;
+    onSend(selectedStaff.id, selectedStaff.email, message.trim());
+  };
 
   return (
     <Modal title={t("notif_send_title")} onClose={onClose}>
+      {initial?.targetHint && !targetId && (
+        <p className="text-xs bg-amber-50 border border-amber-300 text-amber-800 rounded-lg px-3 py-2 mb-3">
+          El asistente sugirió "{initial.targetHint}" — elige a la persona exacta en la lista de abajo.
+        </p>
+      )}
       <Field label={t("notif_send_to_label")}>
-        <select className={inputCls} value={targetEmail} onChange={(e) => setTargetEmail(e.target.value)}>
+        <select className={inputCls} value={targetId} onChange={(e) => setTargetId(e.target.value)}>
           <option value="">{t("notif_send_pick")}</option>
           {staff.map((s) => (
-            <option key={s.id} value={s.email}>{s.email} · {t("role_" + s.role)}</option>
+            <option key={s.id} value={s.id}>{s.email} · {t("role_" + s.role)}</option>
           ))}
         </select>
       </Field>
@@ -4141,8 +4155,8 @@ function SendNotificationModal({ staff, initial, onClose, onSend }) {
         <textarea className={inputCls} rows={4} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("notif_send_msg_ph")} />
       </Field>
       <button
-        onClick={() => targetEmail && message.trim() && onSend(targetEmail, message.trim())}
-        disabled={!targetEmail || !message.trim()}
+        onClick={submit}
+        disabled={!targetId || !message.trim()}
         className={`w-full mt-2 py-2.5 ${primaryBtn} disabled:opacity-50`}
       >
         {t("notif_send_btn")}
