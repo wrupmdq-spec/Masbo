@@ -125,7 +125,7 @@ const ROLES = {
   },
   housekeeping: {
     label: "Personal de Limpieza",
-    tabs: ["housekeeping", "planning"],
+    tabs: ["housekeeping", "planning", "planningGeneral"],
     edit: ["housekeeping"],
   },
   maintenance: {
@@ -692,34 +692,44 @@ export default function MasBoronatOps() {
     persistRooms(updatedRooms, `Marcó automáticamente ${changedCount} unidad(es) como sucias tras el check-out`);
   }, [stays, rooms, role]); // eslint-disable-line
 
-  // Alerta con sonido: avisa a Limpieza/Mantenimiento en cuanto aparece una tarea nueva en su sección
-  const prevPendingRef = useRef(null);
+  // Alerta con sonido: avisa a Limpieza/Mantenimiento en cuanto aparece una tarea NUEVA
+  // en su sección — identificada por su id concreto, no por un recuento total. Así cada
+  // tarea avisa una sola vez, y un cambio en cualquier otro módulo nunca la dispara.
+  const seenTicketIdsRef = useRef(null);
+  const seenDirtyIdsRef = useRef(null);
   useEffect(() => {
-    if (!role || !tickets || !rooms || !salones) return;
     if (role !== "maintenance" && role !== "housekeeping") return;
 
-    let pending = 0;
-    let label = "";
     if (role === "maintenance") {
-      pending = tickets.filter((t) => t.status !== "Resuelto").length
-        + salones.filter((s) => s.category === "Espacios Exteriores" && s.cleaningStatus !== "Limpia").length;
-      label = "Mantenimiento";
+      if (!tickets || !salones) return;
+      const openIds = new Set([
+        ...tickets.filter((t) => t.status !== "Resuelto").map((t) => t.id),
+        ...salones.filter((s) => s.category === "Espacios Exteriores" && s.cleaningStatus !== "Limpia").map((s) => s.id),
+      ]);
+      if (seenTicketIdsRef.current === null) { seenTicketIdsRef.current = openIds; return; }
+      const nuevos = [...openIds].filter((id) => !seenTicketIdsRef.current.has(id));
+      seenTicketIdsRef.current = openIds;
+      if (nuevos.length > 0) fireAlert("Mantenimiento", nuevos.length);
     } else {
-      pending = rooms.filter((r) => r.cleaningStatus !== "Limpia").length
-        + salones.filter((s) => s.category === "Salones" && s.cleaningStatus !== "Limpia").length;
-      label = "Limpieza";
+      if (!rooms || !salones) return;
+      const dirtyIds = new Set([
+        ...rooms.filter((r) => r.cleaningStatus !== "Limpia").map((r) => r.id),
+        ...salones.filter((s) => s.category === "Salones" && s.cleaningStatus !== "Limpia").map((s) => s.id),
+      ]);
+      if (seenDirtyIdsRef.current === null) { seenDirtyIdsRef.current = dirtyIds; return; }
+      const nuevos = [...dirtyIds].filter((id) => !seenDirtyIdsRef.current.has(id));
+      seenDirtyIdsRef.current = dirtyIds;
+      if (nuevos.length > 0) fireAlert("Limpieza", nuevos.length);
     }
 
-    if (prevPendingRef.current !== null && pending > prevPendingRef.current) {
+    function fireAlert(label, count) {
       playAlertSound();
-      setAlertToast(`🔔 Hay una tarea nueva en ${label}`);
+      setAlertToast(`🔔 ${count > 1 ? `${count} tareas nuevas` : "Hay una tarea nueva"} en ${label}`);
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         try { new Notification("Mas Boronat", { body: `Nueva tarea pendiente en ${label}`, icon: "/icon-192.png" }); } catch (e) { /* noop */ }
       }
-      const t = setTimeout(() => setAlertToast(null), 6000);
-      return () => clearTimeout(t);
+      setTimeout(() => setAlertToast(null), 6000);
     }
-    prevPendingRef.current = pending;
   }, [role, tickets, rooms, salones]);
 
   // Pide permiso de notificaciones una vez, para el personal de limpieza/mantenimiento
@@ -838,7 +848,7 @@ export default function MasBoronatOps() {
         )}
         {cfg.tabs.includes("housekeeping") && (
           <div className={tab === "housekeeping" ? "" : "hidden"}>
-            <HousekeepingModule rooms={rooms} persistRooms={persistRooms} salones={salones} persistSalones={persistSalones} editable={canEdit("housekeeping")} />
+            <HousekeepingModule rooms={rooms} stays={stays} persistRooms={persistRooms} salones={salones} persistSalones={persistSalones} editable={canEdit("housekeeping")} />
           </div>
         )}
         {cfg.tabs.includes("maintenance") && (
@@ -2216,17 +2226,23 @@ function cleanStatusIcon(status) {
   return <Circle size={13} />;
 }
 
-function CleaningStatusCard({ id, label, cleaningStatus, cleaningNotes, onCycle, onSaveNote, noteKind, editable, noteEditing, setNoteEditing }) {
+function CleaningStatusCard({ id, label, subtitle, extraBadge, cleaningStatus, cleaningNotes, onCycle, onSaveNote, noteKind, editable, hideCycle, noteEditing, setNoteEditing }) {
   const { t } = useTranslation();
   return (
     <div className="bg-white rounded-xl border border-stone-200 p-2.5">
       <div className="flex items-center justify-between mb-1.5 gap-1">
-        <span className="font-semibold text-stone-800 text-sm truncate">{label}</span>
-        <Badge tone={cleanTone(cleaningStatus)}>
-          <span className="flex items-center gap-1">{cleanStatusIcon(cleaningStatus)} {t("cl_" + cleaningStatus)}</span>
-        </Badge>
+        <div className="min-w-0">
+          <span className="font-semibold text-stone-800 text-sm truncate block">{label}</span>
+          {subtitle && <span className="text-[11px] text-stone-400 truncate block">{subtitle}</span>}
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {extraBadge}
+          <Badge tone={cleanTone(cleaningStatus)}>
+            <span className="flex items-center gap-1">{cleanStatusIcon(cleaningStatus)} {t("cl_" + cleaningStatus)}</span>
+          </Badge>
+        </div>
       </div>
-      {editable ? (
+      {editable && !hideCycle ? (
         <button onClick={() => onCycle(id)} className="w-full text-[11px] font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg py-1.5 mb-1.5">
           {t("housekeeping_touch_update")}
         </button>
@@ -2253,11 +2269,11 @@ function CleaningStatusCard({ id, label, cleaningStatus, cleaningNotes, onCycle,
 /* Limpieza                                                                 */
 /* ---------------------------------------------------------------------- */
 
-function HousekeepingModule({ rooms, persistRooms, salones, persistSalones, editable }) {
-  const { t } = useTranslation();
-  const [noteEditing, setNoteEditing] = useState(null); // { kind: "room"|"salon", id }
+function HousekeepingModule({ rooms, stays, persistRooms, salones, persistSalones, editable }) {
+  const { t, lang } = useTranslation();
+  const [noteEditing, setNoteEditing] = useState(null); // { kind, id }
   const [typeFilter, setTypeFilter] = useState("Todos");
-  const [onlyPending, setOnlyPending] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(todayStr());
 
   const cycleRoomStatus = async (id) => {
     const current = rooms.find((r) => r.id === id);
@@ -2278,81 +2294,175 @@ function HousekeepingModule({ rooms, persistRooms, salones, persistSalones, edit
     setNoteEditing(null);
   };
 
-  const filteredRooms = rooms.filter((r) => {
-    if (typeFilter !== "Todos" && r.type !== typeFilter) return false;
-    if (onlyPending && r.cleaningStatus === "Limpia") return false;
-    return true;
+  // Para cada unidad, ¿qué está pasando en la fecha seleccionada?
+  // "salida"  = el huésped se va ese día → hay que limpiarla
+  // "ocupada" = hay alguien alojado ese día (no ha salido) → no se puede limpiar
+  // "libre"   = no hay ninguna estancia activa ese día → disponible
+  const stayOnDate = (roomId) =>
+    stays.find((s) => s.roomId === roomId && s.status !== "Cancelada" && s.checkIn <= selectedDate && selectedDate <= s.checkOut);
+
+  const typeFilteredRooms = rooms.filter((r) => typeFilter === "Todos" || r.type === typeFilter);
+
+  const salidaRooms = [];
+  const ocupadaRooms = [];
+  const libreRooms = [];
+  typeFilteredRooms.forEach((r) => {
+    const stay = stayOnDate(r.id);
+    if (!stay) libreRooms.push(r);
+    else if (stay.checkOut === selectedDate) salidaRooms.push({ ...r, stay });
+    else ocupadaRooms.push({ ...r, stay });
   });
-  const roomGroups = CATEGORIAS.map((c) => ({ ...c, rooms: filteredRooms.filter((r) => r.type === c.type) })).filter(
-    (g) => g.rooms.length > 0
-  );
 
-  // Los espacios exteriores son solo de Mantenimiento; aquí solo se gestionan los salones interiores.
   const interiorSalones = salones.filter((s) => s.category === "Salones");
-  const filteredSalones = interiorSalones.filter((s) => (onlyPending ? s.cleaningStatus !== "Limpia" : true));
-  const salonGroups = filteredSalones.length > 0
-    ? [{ type: "Salones", color: SALONES_BASE.find((s) => s.category === "Salones")?.color || "#0891b2", items: filteredSalones }]
-    : [];
 
-  const pendingCount = rooms.filter((r) => r.cleaningStatus !== "Limpia").length + interiorSalones.filter((s) => s.cleaningStatus !== "Limpia").length;
+  const isToday = selectedDate === todayStr();
+  const dateLabel = new Date(selectedDate + "T00:00:00").toLocaleDateString(LOCALE_MAP[lang], {
+    weekday: "long", day: "numeric", month: "long",
+  });
+
+  const RoomCard = ({ r, variant }) => {
+    if (variant === "ocupada") {
+      return (
+        <CleaningStatusCard
+          id={r.id}
+          label={unitLabel(r)}
+          subtitle={`${t("hk_guest")} ${r.stay.guestName || "—"} · ${t("hk_until")} ${r.stay.checkOut}`}
+          extraBadge={<Badge tone="blue">{t("hk_occupied_badge")}</Badge>}
+          cleaningStatus={r.cleaningStatus}
+          cleaningNotes={r.cleaningNotes}
+          onCycle={cycleRoomStatus}
+          onSaveNote={saveRoomNote}
+          noteKind="room"
+          editable={editable}
+          hideCycle
+          noteEditing={noteEditing}
+          setNoteEditing={setNoteEditing}
+        />
+      );
+    }
+    return (
+      <CleaningStatusCard
+        id={r.id}
+        label={unitLabel(r)}
+        subtitle={variant === "salida" ? `${t("hk_leaves_today")}: ${r.stay.guestName || "—"}` : null}
+        cleaningStatus={r.cleaningStatus}
+        cleaningNotes={r.cleaningNotes}
+        onCycle={cycleRoomStatus}
+        onSaveNote={saveRoomNote}
+        noteKind="room"
+        editable={editable}
+        noteEditing={noteEditing}
+        setNoteEditing={setNoteEditing}
+      />
+    );
+  };
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-800">{t("housekeeping_title")}</h2>
-          <p className="text-xs text-stone-400">{pendingCount === 0 ? t("housekeeping_all_clean") : t("housekeeping_pending").replace("{n}", pendingCount)}</p>
+          <p className="text-xs text-stone-400 capitalize">{dateLabel}{isToday ? " · hoy" : ""}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={inputCls + " w-auto"}>
             <option value="Todos">{t("housekeeping_all_types")}</option>
             {TIPOS_ALOJAMIENTO.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
           </select>
-          <button
-            onClick={() => setOnlyPending((v) => !v)}
-            className={`text-xs font-medium px-3 py-2 rounded-lg border ${onlyPending ? selectedToggle : unselectedToggle}`}
-          >
-            {t("housekeeping_only_pending")}
-          </button>
         </div>
       </div>
 
-      {roomGroups.map((g) => (
-        <div key={g.type} className="mb-5">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: g.color }} />
-            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: g.color }}>{g.type}</h3>
-            <span className="text-[11px] text-stone-400">({g.rooms.length})</span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-            {g.rooms.map((r) => (
-              <CleaningStatusCard
-                key={r.id}
-                id={r.id}
-                label={unitLabel(r)}
-                cleaningStatus={r.cleaningStatus}
-                cleaningNotes={r.cleaningNotes}
-                onCycle={cycleRoomStatus}
-                onSaveNote={saveRoomNote}
-                noteKind="room"
-                editable={editable}
-                noteEditing={noteEditing}
-                setNoteEditing={setNoteEditing}
-              />
-            ))}
-          </div>
+      <div className="flex items-center justify-between gap-2 mb-4 bg-white rounded-xl border border-stone-200 px-3 py-2">
+        <button onClick={() => setSelectedDate(addDays(selectedDate, -1))} className="text-xs font-medium text-stone-500 hover:text-stone-800">
+          {t("hk_prev_day")}
+        </button>
+        <div className="flex items-center gap-2">
+          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className={inputCls + " w-auto text-center"} />
+          {!isToday && (
+            <button onClick={() => setSelectedDate(todayStr())} className={`text-xs font-medium px-2.5 py-1.5 rounded-lg ${primaryBtn}`}>
+              {t("hk_today_btn")}
+            </button>
+          )}
         </div>
-      ))}
+        <button onClick={() => setSelectedDate(addDays(selectedDate, 1))} className="text-xs font-medium text-stone-500 hover:text-stone-800">
+          {t("hk_next_day")}
+        </button>
+      </div>
 
-      {salonGroups.map((g) => (
-        <div key={g.type} className="mb-5">
+      <p className="text-xs text-stone-500 mb-4">
+        {t("hk_summary").replace("{salida}", salidaRooms.length).replace("{ocupada}", ocupadaRooms.length).replace("{libre}", libreRooms.length)}
+      </p>
+
+      {/* Salida hoy — lo más urgente, siempre primero */}
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-rose-500" />
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-rose-600">{t("hk_checkout_today")}</h3>
+          <span className="text-[11px] text-stone-400">({salidaRooms.length})</span>
+        </div>
+        {salidaRooms.length === 0 ? (
+          <p className="text-xs text-stone-400 italic">{t("hk_none_checkout")}</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+            {salidaRooms.map((r) => <RoomCard key={r.id} r={r} variant="salida" />)}
+          </div>
+        )}
+      </div>
+
+      {/* Ocupadas — informativo, no se puede limpiar */}
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500" />
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-blue-600">{t("hk_occupied_section")}</h3>
+          <span className="text-[11px] text-stone-400">({ocupadaRooms.length})</span>
+        </div>
+        {ocupadaRooms.length === 0 ? (
+          <p className="text-xs text-stone-400 italic">{t("hk_none_occupied")}</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+            {ocupadaRooms.map((r) => <RoomCard key={r.id} r={r} variant="ocupada" />)}
+          </div>
+        )}
+      </div>
+
+      {/* Libres — agrupadas por categoría para navegar más fácil */}
+      <div className="mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" />
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-600">{t("hk_available_section")}</h3>
+          <span className="text-[11px] text-stone-400">({libreRooms.length})</span>
+        </div>
+        {libreRooms.length === 0 ? (
+          <p className="text-xs text-stone-400 italic">{t("hk_none_available")}</p>
+        ) : (
+          CATEGORIAS.map((c) => {
+            const items = libreRooms.filter((r) => r.type === c.type);
+            if (items.length === 0) return null;
+            return (
+              <div key={c.type} className="mb-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+                  <span className="text-[11px] font-medium text-stone-400">{c.type} ({items.length})</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+                  {items.map((r) => <RoomCard key={r.id} r={r} variant="libre" />)}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Salones interiores — sin cambios: se marcan solos al terminar un evento */}
+      {interiorSalones.length > 0 && (
+        <div className="mb-3">
           <div className="flex items-center gap-2 mb-2">
-            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: g.color }} />
-            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: g.color }}>{g.type}</h3>
-            <span className="text-[11px] text-stone-400">({g.items.length})</span>
+            <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SALONES_BASE.find((s) => s.category === "Salones")?.color || "#0891b2" }} />
+            <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: SALONES_BASE.find((s) => s.category === "Salones")?.color || "#0891b2" }}>Salones</h3>
+            <span className="text-[11px] text-stone-400">({interiorSalones.length})</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-            {g.items.map((s) => (
+            {interiorSalones.map((s) => (
               <CleaningStatusCard
                 key={s.id}
                 id={s.id}
@@ -2368,16 +2478,13 @@ function HousekeepingModule({ rooms, persistRooms, salones, persistSalones, edit
               />
             ))}
           </div>
+          <p className="text-[11px] text-stone-400 mt-2">Los salones se marcan "Sucia" automáticamente en cuanto pasa la fecha de un evento confirmado en ese espacio.</p>
         </div>
-      ))}
-
-      {roomGroups.length === 0 && salonGroups.length === 0 && (
-        <p className="text-sm text-stone-400 italic">{t("housekeeping_no_match")}</p>
       )}
-      <p className="text-[11px] text-stone-400 mt-2">Los salones se marcan "Sucia" automáticamente en cuanto pasa la fecha de un evento confirmado en ese espacio.</p>
     </div>
   );
 }
+
 
 function NoteInline({ initial, onSave, onCancel }) {
   const { t } = useTranslation();
@@ -2973,8 +3080,9 @@ function daysBetween(a, b) {
   const db = new Date(b + "T00:00:00");
   return Math.round((db - da) / 86400000);
 }
-function stayBarTone(s) {
+function stayBarTone(s, hasOverlap) {
   if (s.status === "Cancelada") return null;
+  if (hasOverlap) return { bg: "#ea580c", text: "#fff" }; // naranja: se solapa con otra reserva en la misma unidad
   const timing = stayTiming(s);
   if (timing === "En curso") return { bg: "#16a34a", text: "#fff" }; // verde: huésped en casa ahora
   if (timing === "Próxima") return { bg: "#0369a1", text: "#fff" }; // azul: reserva futura
@@ -2990,6 +3098,27 @@ function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
   const [activeStay, setActiveStay] = useState(null);
   const [dragging, setDragging] = useState(null); // { stayId, startX, deltaDays }
   const dragMovedRef = useRef(false);
+
+  // Detecta reservas que de verdad se solapan (misma unidad, mismas noches) para
+  // pintarlas en un color de aviso — así se ven a simple vista sin tener que mirar fechas.
+  const overlappingStayIds = new Set();
+  {
+    const byRoom = {};
+    stays.forEach((s) => {
+      if (s.status === "Cancelada") return;
+      (byRoom[s.roomId] = byRoom[s.roomId] || []).push(s);
+    });
+    Object.values(byRoom).forEach((roomStays) => {
+      for (let i = 0; i < roomStays.length; i++) {
+        for (let j = i + 1; j < roomStays.length; j++) {
+          if (rangesOverlap(roomStays[i].checkIn, roomStays[i].checkOut, roomStays[j].checkIn, roomStays[j].checkOut)) {
+            overlappingStayIds.add(roomStays[i].id);
+            overlappingStayIds.add(roomStays[j].id);
+          }
+        }
+      }
+    });
+  }
 
   const days = Array.from({ length: daysToShow }, (_, i) => addDays(windowStart, i));
   const windowEnd = days[days.length - 1];
@@ -3074,6 +3203,7 @@ function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#16a34a] inline-block" /> {t("pgen_legend_now")}</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#0369a1] inline-block" /> {t("pgen_legend_future")}</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#a8a29e] inline-block" /> {t("pgen_legend_finished")}</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-[#ea580c] inline-block" /> {t("pgen_legend_overlap")}</span>
       </div>
 
       <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
@@ -3138,7 +3268,7 @@ function PlanningGeneralModule({ rooms, stays, persistStays, editable }) {
                       </div>
                       <div className="relative" style={{ width: totalWidth, height: 40, ...gridBg }}>
                         {roomStays.map((s) => {
-                          const tone = stayBarTone(s);
+                          const tone = stayBarTone(s, overlappingStayIds.has(s.id));
                           if (!tone) return null;
                           const isDraggingThis = dragging && dragging.stayId === s.id;
                           const liveDelta = isDraggingThis ? dragging.deltaDays : 0;
