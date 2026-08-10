@@ -203,8 +203,19 @@ export async function fetchDailyLogins(dateStr) {
 /* Tablas reales — una fila por registro (sustituye al sistema de bloques)  */
 /* ---------------------------------------------------------------------- */
 
+// Límite de seguridad (no es paginación real): evita que un token comprometido
+// pueda volcar una tabla sin fin de una sola vez. 20.000 filas es una cifra muy
+// por encima de lo que este hotel generará en años de uso normal (ni siquiera
+// el histórico de reservas de restaurante, que es lo que más crece, se acerca
+// a eso a corto/medio plazo) — así que no debería truncar nunca datos reales.
+// Si algún día una tabla se acerca a este número, es la señal de implementar
+// paginación real (y probablemente también de revisar el rendimiento, porque
+// cargar 20.000 filas en el navegador ya sería lento antes de ser un problema
+// de seguridad).
+const SAFETY_ROW_LIMIT = 20000;
+
 async function fetchTable(table, fromDb, orderBy) {
-  let query = supabase.from(table).select("*");
+  let query = supabase.from(table).select("*").limit(SAFETY_ROW_LIMIT);
   if (orderBy) query = query.order(orderBy);
   const { data, error } = await query;
   if (error) throw error;
@@ -265,12 +276,17 @@ export async function resolveGuestId(guestName) {
 /* Directivas al personal (mensajes dirigidos + seguimiento de cumplimiento) */
 /* ---------------------------------------------------------------------- */
 
-// Directivas dirigidas a MÍ (el usuario logueado)
-export async function fetchMyNotifications() {
+// Directivas dirigidas a MÍ (el usuario logueado). Se filtra SIEMPRE aquí también,
+// por el id exacto de mi cuenta — así, aunque el administrador vea más filas por
+// permisos (para el registro), su propia campana nunca mezcla lo de los demás.
+export async function fetchMyNotifications(myUserId) {
+  if (!myUserId) return [];
   const { data, error } = await supabase
     .from("staff_notifications")
     .select("*")
-    .order("created_at", { ascending: false });
+    .eq("target_user_id", myUserId)
+    .order("created_at", { ascending: false })
+    .limit(SAFETY_ROW_LIMIT);
   if (error) { console.error("Error leyendo directivas", error); return []; }
   return data || [];
 }
@@ -280,15 +296,16 @@ export async function fetchAllNotifications() {
   const { data, error } = await supabase
     .from("staff_notifications")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(SAFETY_ROW_LIMIT);
   if (error) { console.error("Error leyendo el registro de directivas", error); return []; }
   return data || [];
 }
 
-export async function sendNotification(targetEmail, message, sentBy) {
+export async function sendNotification(targetUserId, targetEmail, message, sentBy) {
   const id = "n-" + Math.random().toString(36).slice(2, 10);
   const { error } = await supabase.from("staff_notifications").insert({
-    id, target_email: targetEmail, message, sent_by: sentBy, status: "Pendiente",
+    id, target_user_id: targetUserId, target_email: targetEmail, message, sent_by: sentBy, status: "Pendiente",
   });
   if (error) throw error;
   return id;
