@@ -4120,6 +4120,8 @@ function SendNotificationModal({ staff, initial, onClose, onSend }) {
   const { t } = useTranslation();
   const [targetId, setTargetId] = useState("");
   const [message, setMessage] = useState(initial?.message || "");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (targetId) return; // no pisar una elección ya hecha por la persona
@@ -4131,9 +4133,16 @@ function SendNotificationModal({ staff, initial, onClose, onSend }) {
 
   const selectedStaff = staff.find((s) => s.id === targetId);
 
-  const submit = () => {
-    if (!selectedStaff || !message.trim()) return;
-    onSend(selectedStaff.id, selectedStaff.email, message.trim());
+  const submit = async () => {
+    if (!selectedStaff || !message.trim() || sending) return;
+    setError("");
+    setSending(true);
+    try {
+      await onSend(selectedStaff.id, selectedStaff.email, message.trim());
+    } catch (e) {
+      setError(e.message || "No se pudo enviar el mensaje. Inténtalo de nuevo.");
+    }
+    setSending(false);
   };
 
   return (
@@ -4154,12 +4163,15 @@ function SendNotificationModal({ staff, initial, onClose, onSend }) {
       <Field label={t("notif_send_msg_label")}>
         <textarea className={inputCls} rows={4} maxLength={500} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("notif_send_msg_ph")} />
       </Field>
+      {error && (
+        <p className="text-xs bg-rose-50 border border-rose-300 text-rose-700 rounded-lg px-3 py-2 mb-3">{error}</p>
+      )}
       <button
         onClick={submit}
-        disabled={!targetId || !message.trim()}
+        disabled={!targetId || !message.trim() || sending}
         className={`w-full mt-2 py-2.5 ${primaryBtn} disabled:opacity-50`}
       >
-        {t("notif_send_btn")}
+        {sending ? "Enviando…" : t("notif_send_btn")}
       </button>
     </Modal>
   );
