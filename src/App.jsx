@@ -612,33 +612,38 @@ export default function MasBoronatOps() {
     logAction({ email: session.user.email, role, module: "Limpieza / Alojamientos", action: actionOverride || "Actualizó el estado de una unidad" });
   };
   const persistStays = async (next, actionOverride) => {
-    const action = actionOverride || summarizeChange(stays, next, "reserva de alojamiento");
-    // Vincula cada estancia con su perfil de huésped (lo crea si es la primera vez que viene).
-    // Importante: se resuelve UNA vez por nombre, en orden (no en paralelo), porque una
-    // reserva de grupo puede traer varias estancias nuevas con el mismo huésped a la vez —
-    // resolverlas todas en paralelo crearía un perfil duplicado por cada unidad.
-    const resolvedByName = {};
-    const withGuestIds = [];
-    for (const s of next) {
-      const prevStay = stays.find((p) => p.id === s.id);
-      const nameChanged = prevStay && prevStay.guestName !== s.guestName;
-      if ((s.guestId && !nameChanged) || !s.guestName) { withGuestIds.push(s); continue; }
-      const key = s.guestName.trim().toLowerCase();
-      if (!(key in resolvedByName)) {
-        resolvedByName[key] = await resolveGuestId(s.guestName);
-      }
-      withGuestIds.push(resolvedByName[key] ? { ...s, guestId: resolvedByName[key] } : s);
-    }
+    const withTimeout = (promise, ms, label) => Promise.race([
+      promise,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("Tiempo agotado (" + Math.round(ms / 1000) + "s) en: " + label)), ms)),
+    ]);
+    let stage = "preparando";
     try {
-      await syncStays(stays, withGuestIds);
+      const action = actionOverride || summarizeChange(stays, next, "reserva de alojamiento");
+      // Vincula cada estancia con su perfil de huésped (lo crea si es la primera vez que viene).
+      // Se resuelve UNA vez por nombre, en orden (no en paralelo), para no crear perfiles duplicados.
+      stage = "buscando/creando perfil de huésped";
+      const resolvedByName = {};
+      const withGuestIds = [];
+      for (const s of next) {
+        const prevStay = stays.find((p) => p.id === s.id);
+        const nameChanged = prevStay && prevStay.guestName !== s.guestName;
+        if ((s.guestId && !nameChanged) || !s.guestName) { withGuestIds.push(s); continue; }
+        const key = s.guestName.trim().toLowerCase();
+        if (!(key in resolvedByName)) {
+          resolvedByName[key] = await withTimeout(resolveGuestId(s.guestName), 20000, stage);
+        }
+        withGuestIds.push(resolvedByName[key] ? { ...s, guestId: resolvedByName[key] } : s);
+      }
+      stage = "guardando la reserva en la base de datos";
+      await withTimeout(syncStays(stays, withGuestIds), 20000, stage);
+      setStays(withGuestIds);
+      try { logAction({ email: session.user.email, role, module: "Hospedaje", action }); } catch (e) { console.error(e); }
     } catch (err) {
-      console.error("Error guardando reservas", err);
+      console.error("Error guardando reservas (" + stage + ")", err);
       const detail = [err?.message, err?.details, err?.hint, err?.code && `código ${err.code}`].filter(Boolean).join(" · ");
-      window.alert("⚠️ No se pudo guardar la reserva. NO se ha guardado nada.\n\nMotivo técnico: " + (detail || String(err)) + "\n\nSi dice 'JWT' o 'permission denied', cierra sesión y vuelve a entrar. Si persiste, envía esta captura al administrador.");
+      window.alert("⚠️ No se pudo guardar la reserva. NO se ha guardado nada.\n\nFase: " + stage + "\nMotivo técnico: " + (detail || String(err)) + "\n\nHaz una captura de este aviso y envíala al administrador.");
       throw err;
     }
-    setStays(withGuestIds);
-    logAction({ email: session.user.email, role, module: "Hospedaje", action });
   };
   const persistBookings = async (next) => {
     const action = summarizeChange(bookings, next, "reserva de restaurante");
