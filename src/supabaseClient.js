@@ -229,12 +229,21 @@ async function syncTable(table, prevArr, nextArr, toDb, idKey = "id") {
   const toDelete = (prevArr || []).filter((r) => !nextIds.has(r[idKey]));
 
   if (toUpsert.length > 0) {
-    const { error } = await supabase.from(table).upsert(toUpsert.map(toDb));
+    const rowsDb = toUpsert.map(toDb);
+    const { data, error } = await supabase.from(table).upsert(rowsDb).select(idKey === "id" ? "id" : idKey);
     if (error) throw error;
+    // Comprobación: la base de datos debe devolver tantas filas como enviamos.
+    // Si devuelve menos, un permiso (RLS) las descartó SIN dar error.
+    if ((data || []).length !== rowsDb.length) {
+      throw new Error(`La base de datos solo aceptó ${(data || []).length} de ${rowsDb.length} registro(s) en "${table}". Probable bloqueo por permisos (RLS) o regla de la tabla.`);
+    }
   }
   if (toDelete.length > 0) {
-    const { error } = await supabase.from(table).delete().in(idKey, toDelete.map((r) => r[idKey]));
+    const { data, error } = await supabase.from(table).delete().in(idKey, toDelete.map((r) => r[idKey])).select(idKey);
     if (error) throw error;
+    if ((data || []).length !== toDelete.length) {
+      throw new Error(`No se pudieron borrar ${toDelete.length - (data || []).length} registro(s) en "${table}" (permisos).`);
+    }
   }
 }
 

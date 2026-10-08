@@ -655,6 +655,11 @@ export default function MasBoronatOps() {
       }
       stage = "guardando la reserva en la base de datos";
       await withTimeout(syncStays(stays, withGuestIds), 20000, stage);
+      stage = "verificando que la reserva quedó en la base de datos";
+      const fresh = await withTimeout(fetchStays(), 20000, stage);
+      const freshIds = new Set(fresh.map((r) => r.id));
+      const missing = withGuestIds.filter((r) => !freshIds.has(r.id));
+      if (missing.length > 0) throw new Error(`${missing.length} reserva(s) no aparecen en la base de datos tras guardar (id ${missing[0].id}).`);
       setStays(withGuestIds);
       showToast("✅ Guardado correctamente", "ok");
       try { logAction({ email: session.user.email, role, module: "Hospedaje", action }); } catch (e) { console.error(e); }
