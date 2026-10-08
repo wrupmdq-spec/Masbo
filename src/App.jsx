@@ -629,7 +629,14 @@ export default function MasBoronatOps() {
       }
       withGuestIds.push(resolvedByName[key] ? { ...s, guestId: resolvedByName[key] } : s);
     }
-    await syncStays(stays, withGuestIds);
+    try {
+      await syncStays(stays, withGuestIds);
+    } catch (err) {
+      console.error("Error guardando reservas", err);
+      const detail = [err?.message, err?.details, err?.hint, err?.code && `código ${err.code}`].filter(Boolean).join(" · ");
+      window.alert("⚠️ No se pudo guardar la reserva. NO se ha guardado nada.\n\nMotivo técnico: " + (detail || String(err)) + "\n\nSi dice 'JWT' o 'permission denied', cierra sesión y vuelve a entrar. Si persiste, envía esta captura al administrador.");
+      throw err;
+    }
     setStays(withGuestIds);
     logAction({ email: session.user.email, role, module: "Hospedaje", action });
   };
@@ -1184,14 +1191,14 @@ function GuestsModule({ rooms, stays, persistStays, editable, deletable, hotelCl
     let next;
     if (stay.id) next = stays.map((s) => (s.id === stay.id ? stay : s));
     else next = [...stays, { ...stay, id: uid() }];
-    await persistStays(next);
+    try { await persistStays(next); } catch { return; } // el aviso ya se mostró; el formulario queda abierto
     setNewStayFor(null);
     setEditingStay(null);
     scanDrafts();
   };
   const remove = async (id) => { await persistStays(stays.filter((s) => s.id !== id)); };
   const saveGroup = async (newStays) => {
-    await persistStays([...stays, ...newStays]);
+    try { await persistStays([...stays, ...newStays]); } catch { return; }
     setShowGroupModal(false);
   };
 
