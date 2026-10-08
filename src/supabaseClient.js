@@ -214,12 +214,21 @@ export async function fetchDailyLogins(dateStr) {
 // de seguridad).
 const SAFETY_ROW_LIMIT = 20000;
 
+// Supabase limita cada respuesta a 1000 filas (max_rows) aunque pidamos más con .limit().
+// Por eso se lee por páginas de 1000, con orden estable por id, hasta traer TODAS las filas.
+// (Sin esto, al pasar de 1000 filas las nuevas "desaparecían" de la lista.)
+const PAGE_SIZE = 1000;
 async function fetchTable(table, fromDb, orderBy) {
-  let query = supabase.from(table).select("*").limit(SAFETY_ROW_LIMIT);
-  if (orderBy) query = query.order(orderBy);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data || []).map(fromDb);
+  const all = [];
+  for (let from = 0; from < SAFETY_ROW_LIMIT; from += PAGE_SIZE) {
+    let query = supabase.from(table).select("*");
+    query = orderBy ? query.order(orderBy).order("id") : query.order("id");
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    all.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return all.map(fromDb);
 }
 
 async function syncTable(table, prevArr, nextArr, toDb, idKey = "id") {
