@@ -463,6 +463,24 @@ function MoneyField({ label, value, onChange }) {
 /* Aplicación principal                                                    */
 /* ---------------------------------------------------------------------- */
 
+// Aviso visible en pantalla (no se puede bloquear como window.alert). kind: "info" | "ok" | "error"
+function showToast(msg, kind = "info") {
+  try {
+    let box = document.getElementById("mb-toast");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "mb-toast";
+      box.style.cssText = "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483647;max-width:92vw;padding:12px 16px;border-radius:10px;font:14px/1.4 system-ui,sans-serif;color:#fff;box-shadow:0 4px 20px rgba(0,0,0,.35);white-space:pre-wrap;cursor:pointer";
+      box.onclick = () => box.remove();
+      document.body.appendChild(box);
+    }
+    box.style.background = kind === "error" ? "#b3261e" : kind === "ok" ? "#2e7d32" : "#44403c";
+    box.textContent = msg + (kind === "error" ? "\n\n(toca este aviso para cerrarlo)" : "");
+    clearTimeout(box._t);
+    if (kind !== "error") box._t = setTimeout(() => box.remove(), 3500);
+  } catch (e) { /* noop */ }
+}
+
 export default function MasBoronatOps() {
   const [session, setSession] = useState(undefined); // undefined = comprobando, null = sin sesión
   const [profile, setProfile] = useState(null);
@@ -617,6 +635,7 @@ export default function MasBoronatOps() {
       new Promise((_, rej) => setTimeout(() => rej(new Error("Tiempo agotado (" + Math.round(ms / 1000) + "s) en: " + label)), ms)),
     ]);
     let stage = "preparando";
+    showToast("⏳ Guardando…", "info");
     try {
       const action = actionOverride || summarizeChange(stays, next, "reserva de alojamiento");
       // Vincula cada estancia con su perfil de huésped (lo crea si es la primera vez que viene).
@@ -637,11 +656,12 @@ export default function MasBoronatOps() {
       stage = "guardando la reserva en la base de datos";
       await withTimeout(syncStays(stays, withGuestIds), 20000, stage);
       setStays(withGuestIds);
+      showToast("✅ Guardado correctamente", "ok");
       try { logAction({ email: session.user.email, role, module: "Hospedaje", action }); } catch (e) { console.error(e); }
     } catch (err) {
       console.error("Error guardando reservas (" + stage + ")", err);
       const detail = [err?.message, err?.details, err?.hint, err?.code && `código ${err.code}`].filter(Boolean).join(" · ");
-      window.alert("⚠️ No se pudo guardar la reserva. NO se ha guardado nada.\n\nFase: " + stage + "\nMotivo técnico: " + (detail || String(err)) + "\n\nHaz una captura de este aviso y envíala al administrador.");
+      showToast("⚠️ No se pudo guardar la reserva. NO se ha guardado nada.\n\nFase: " + stage + "\nMotivo técnico: " + (detail || String(err)) + "\n\nHaz una captura de este aviso y envíala al administrador.", "error");
       throw err;
     }
   };
@@ -1874,6 +1894,7 @@ function StayModal({ room, stay, otherStays, onClose, onSave }) {
     onClose();
   };
   const handleSave = () => {
+    showToast("Botón Guardar pulsado…", "info");
     try { localStorage.removeItem(draftKey); } catch (e) { /* noop */ }
     onSave({ ...form, checkoutProcessed: false });
   };
