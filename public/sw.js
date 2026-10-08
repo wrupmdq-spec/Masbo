@@ -1,14 +1,10 @@
 // Service worker mínimo: necesario para que el navegador considere la app "instalable".
-// No cachea nada de forma agresiva, para evitar que el personal vea datos desactualizados.
-self.addEventListener("install", (event) => {
-  self.skipWaiting();
-});
-
-self.addEventListener("activate", (event) => {
-  self.clients.claim();
-});
-
+// No cachea nada y NO intercepta las escrituras (POST/PATCH/DELETE): así nunca puede bloquear un guardado.
+self.addEventListener("install", () => { self.skipWaiting(); });
+self.addEventListener("activate", (event) => { event.waitUntil(self.clients.claim()); });
 self.addEventListener("fetch", (event) => {
-  // Deja pasar todas las peticiones directamente a la red.
-  event.respondWith(fetch(event.request));
+  const req = event.request;
+  if (req.method !== "GET") return;                      // escrituras: directo a la red
+  if (!req.url.startsWith(self.location.origin)) return; // Supabase y otros dominios: directo a la red
+  event.respondWith(fetch(req));
 });
